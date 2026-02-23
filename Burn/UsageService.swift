@@ -75,9 +75,12 @@ final class UsageService: @unchecked Sendable {
             let process = Process()
             let pipe = Pipe()
 
+            // Use interactive login shell so .zshrc/.bashrc get sourced
+            // (volta, nvm, etc. often configure PATH there, not .zprofile)
             let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
             process.executableURL = URL(fileURLWithPath: shell)
-            process.arguments = ["-l", "-c", "ccusage daily --json"]
+            process.arguments = ["-i", "-l", "-c", "ccusage daily --json"]
+            process.standardInput = FileHandle.nullDevice
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
 
