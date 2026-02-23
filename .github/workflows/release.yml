@@ -133,8 +133,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
+          # Skip if release already exists (local notarized build takes priority)
           if gh release view "$VERSION" &>/dev/null; then
-            gh release upload "$VERSION" "Burn-${VERSION}-macos.dmg" --clobber
+            echo "Release $VERSION already exists, skipping (use local notarized build)"
           else
             gh release create "$VERSION" "Burn-${VERSION}-macos.dmg" \
               --title "Burn ${VERSION}" \
