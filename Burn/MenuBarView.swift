@@ -28,6 +28,7 @@ struct MenuBarView: View {
             supportSection
             Divider()
             quitSection
+            versionLabel
         }
         .frame(width: 300)
     }
@@ -216,6 +217,14 @@ struct MenuBarView: View {
         }
         .buttonStyle(MenuButtonStyle())
         .keyboardShortcut("q")
+    }
+
+    private var versionLabel: some View {
+        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, 6)
     }
 
     // MARK: - Helpers
