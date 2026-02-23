@@ -133,6 +133,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          gh release create "$VERSION" "Burn-${VERSION}-macos.dmg" \
-            --title "Burn ${VERSION}" \
-            --generate-notes
+          if gh release view "$VERSION" &>/dev/null; then
+            gh release upload "$VERSION" "Burn-${VERSION}-macos.dmg" --clobber
+          else
+            gh release create "$VERSION" "Burn-${VERSION}-macos.dmg" \
+              --title "Burn ${VERSION}" \
+              --generate-notes
+          fi
