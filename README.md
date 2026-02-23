@@ -1,16 +1,25 @@
-# Burn
+<div align="center">
+<h1>🔥 Burn</h1>
 
-<p align="center">
-  <img src="assets/icon.png" width="128" height="128" alt="Burn Icon">
-</p>
+<img src="assets/icon.png" width="128" height="128" alt="Burn Icon">
 
-> Track your Claude Code spending from the macOS menu bar.
+<p>Track your Claude Code spending from the macOS menu bar</p>
+</div>
+
+---
 
 <p align="center">
   <img src="assets/popover.png" width="400" alt="Burn screenshot showing menu bar popover with daily spend, 7-day chart, and monthly total">
 </p>
 
 See today's cost at a glance. Click for a 7-day chart and monthly total.
+
+## Prerequisites
+
+Burn shells out to [ccusage](https://github.com/ryoppippi/ccusage) for usage data:
+```bash
+npm i -g ccusage
+```
 
 ## Install
 
@@ -27,13 +36,6 @@ brew install --cask burn
 git clone https://github.com/maferland/burn.git
 cd burn
 make install
-```
-
-## Prerequisites
-
-Burn shells out to [ccusage](https://github.com/ryoppippi/ccusage) for usage data:
-```bash
-npm i -g ccusage
 ```
 
 ## Usage
