@@ -194,8 +194,9 @@ struct MenuBarView: View {
             NSWorkspace.shared.open(URL(string: "https://buymeacoffee.com/maferland")!)
         } label: {
             HStack {
-                Label("Buy Me a Coffee", systemImage: "cup.and.saucer")
+                Label("Support", systemImage: "heart")
                 Spacer()
+                Text("☕")
             }
         }
         .buttonStyle(MenuButtonStyle())

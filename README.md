@@ -53,7 +53,7 @@ Burn runs `ccusage` locally. No network requests beyond what ccusage does. No da
 
 ## Support
 
-If Burn helps you keep tabs on your Claude Code spending, consider buying me a coffee:
+If Burn helps you track your spending, consider buying me a coffee:
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/maferland)
 
