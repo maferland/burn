@@ -6,6 +6,10 @@
 
 > Track your Claude Code spending from the macOS menu bar.
 
+<p align="center">
+  <img src="assets/screenshot.png" width="400" alt="Burn screenshot showing menu bar popover with daily spend, 7-day chart, and monthly total">
+</p>
+
 See today's cost at a glance. Click for a 7-day chart and monthly total.
 
 ## Install
