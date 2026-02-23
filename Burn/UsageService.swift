@@ -3,8 +3,7 @@ import Foundation
 private let commandTimeout: TimeInterval = 30
 
 @Observable
-@MainActor
-final class UsageService {
+final class UsageService: @unchecked Sendable {
     var usageData: UsageData = .empty
     var isLoading = false
     var errorMessage: String?
@@ -12,6 +11,7 @@ final class UsageService {
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private let settings: SettingsStore
+    private let lock = NSLock()
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -40,41 +40,40 @@ final class UsageService {
         errorMessage = nil
 
         refreshTask?.cancel()
-        refreshTask = Task {
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
             do {
-                let json = try await runCCUsage()
+                let json = try await self.runCCUsage()
                 let response = try JSONDecoder().decode(CCUsageResponse.self, from: json)
-                usageData = UsageData.from(response: response)
+                let data = UsageData.from(response: response)
+                await MainActor.run {
+                    self.usageData = data
+                    self.isLoading = false
+                }
             } catch is CancellationError {
-                // Cancelled
+                await MainActor.run { self.isLoading = false }
             } catch {
-                errorMessage = error.localizedDescription
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
             }
-            isLoading = false
         }
     }
 
     private func scheduleTimer() {
         let interval = TimeInterval(settings.refreshIntervalMinutes * 60)
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            self?.refresh()
         }
     }
 
-    private nonisolated func runCCUsage() async throws -> Data {
+    private func runCCUsage() async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
+            let guard_ = ContinuationGuard(continuation: continuation)
+
             let process = Process()
             let pipe = Pipe()
-            let lock = NSLock()
-            var resumed = false
-
-            @Sendable func resumeOnce(with result: Result<Data, Error>) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !resumed else { return }
-                resumed = true
-                continuation.resume(with: result)
-            }
 
             let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
             process.executableURL = URL(fileURLWithPath: shell)
@@ -85,9 +84,9 @@ final class UsageService {
             process.terminationHandler = { _ in
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 if process.terminationStatus == 0 {
-                    resumeOnce(with: .success(data))
+                    guard_.resume(with: .success(data))
                 } else {
-                    resumeOnce(with: .failure(UsageError.commandFailed(process.terminationStatus)))
+                    guard_.resume(with: .failure(UsageError.commandFailed(process.terminationStatus)))
                 }
             }
 
@@ -97,12 +96,30 @@ final class UsageService {
                 DispatchQueue.global().asyncAfter(deadline: .now() + commandTimeout) {
                     guard process.isRunning else { return }
                     process.terminate()
-                    resumeOnce(with: .failure(UsageError.timeout))
+                    guard_.resume(with: .failure(UsageError.timeout))
                 }
             } catch {
-                resumeOnce(with: .failure(error))
+                guard_.resume(with: .failure(error))
             }
         }
+    }
+}
+
+private final class ContinuationGuard<T: Sendable>: @unchecked Sendable {
+    private let continuation: CheckedContinuation<T, Error>
+    private let lock = NSLock()
+    private var resumed = false
+
+    init(continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<T, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resumed else { return }
+        resumed = true
+        continuation.resume(with: result)
     }
 }
 
