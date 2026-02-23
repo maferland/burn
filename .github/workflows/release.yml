@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test
+        run: swift test
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Create app bundle
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          APP_NAME="Burn"
+          APP_BUNDLE="${APP_NAME}.app"
+
+          mkdir -p "${APP_BUNDLE}/Contents/MacOS"
+          mkdir -p "${APP_BUNDLE}/Contents/Resources"
+          cp ".build/release/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+
+          cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>${APP_NAME}</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.maferland.burn</string>
+              <key>CFBundleName</key>
+              <string>${APP_NAME}</string>
+              <key>CFBundleDisplayName</key>
+              <string>${APP_NAME}</string>
+              <key>CFBundleVersion</key>
+              <string>${VERSION}</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${VERSION}</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleIconFile</key>
+              <string>AppIcon</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          # Create icns
+          if [ -f "assets/icon.png" ]; then
+            ICONSET_DIR="/tmp/Burn.iconset"
+            rm -rf "${ICONSET_DIR}"
+            mkdir -p "${ICONSET_DIR}"
+            sips -z 16 16     assets/icon.png --out "${ICONSET_DIR}/icon_16x16.png" 2>/dev/null
+            sips -z 32 32     assets/icon.png --out "${ICONSET_DIR}/icon_16x16@2x.png" 2>/dev/null
+            sips -z 32 32     assets/icon.png --out "${ICONSET_DIR}/icon_32x32.png" 2>/dev/null
+            sips -z 64 64     assets/icon.png --out "${ICONSET_DIR}/icon_32x32@2x.png" 2>/dev/null
+            sips -z 128 128   assets/icon.png --out "${ICONSET_DIR}/icon_128x128.png" 2>/dev/null
+            sips -z 256 256   assets/icon.png --out "${ICONSET_DIR}/icon_128x128@2x.png" 2>/dev/null
+            sips -z 256 256   assets/icon.png --out "${ICONSET_DIR}/icon_256x256.png" 2>/dev/null
+            sips -z 512 512   assets/icon.png --out "${ICONSET_DIR}/icon_256x256@2x.png" 2>/dev/null
+            sips -z 512 512   assets/icon.png --out "${ICONSET_DIR}/icon_512x512.png" 2>/dev/null
+            sips -z 1024 1024 assets/icon.png --out "${ICONSET_DIR}/icon_512x512@2x.png" 2>/dev/null
+            iconutil -c icns "${ICONSET_DIR}" -o "${APP_BUNDLE}/Contents/Resources/AppIcon.icns" 2>/dev/null || true
+            rm -rf "${ICONSET_DIR}"
+          fi
+
+      - name: Sign app
+        if: env.SIGN_CERTIFICATE != ''
+        env:
+          SIGN_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          SIGN_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Import certificate
+          echo "$SIGN_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          KEYCHAIN_PATH=/tmp/build.keychain
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import /tmp/certificate.p12 -k "$KEYCHAIN_PATH" -P "$SIGN_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          # Sign
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | grep -o '"[^"]*"' | tr -d '"')
+          codesign --sign "$IDENTITY" --options runtime --timestamp --deep --force \
+            --entitlements Burn.entitlements Burn.app
+
+      - name: Create DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          rm -rf /tmp/Burn-dmg
+          mkdir -p /tmp/Burn-dmg
+          cp -R Burn.app /tmp/Burn-dmg/
+          ln -s /Applications /tmp/Burn-dmg/Applications
+          hdiutil create -volname "Burn ${VERSION}" \
+            -srcfolder /tmp/Burn-dmg \
+            -ov -format UDZO \
+            "Burn-${VERSION}-macos.dmg"
+          rm -rf /tmp/Burn-dmg
+
+      - name: Notarize
+        if: env.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARIZE_PASSWORD: ${{ secrets.NOTARIZE_PASSWORD }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          xcrun notarytool submit "Burn-${VERSION}-macos.dmg" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$NOTARIZE_PASSWORD" \
+            --wait
+          xcrun stapler staple "Burn-${VERSION}-macos.dmg"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          gh release create "$VERSION" "Burn-${VERSION}-macos.dmg" \
+            --title "Burn ${VERSION}" \
+            --generate-notes
