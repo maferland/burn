@@ -51,6 +51,12 @@ Burn runs `ccusage` locally. No network requests beyond what ccusage does. No da
 - macOS 14 (Sonoma) or later
 - [ccusage](https://github.com/ryoppippi/ccusage) (`npm i -g ccusage`)
 
+## Support
+
+If Burn helps you keep tabs on your Claude Code spending, consider buying me a coffee:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/maferland)
+
 ## License
 
 MIT — see [LICENSE](LICENSE)
