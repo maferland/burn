@@ -25,6 +25,7 @@ final class SettingsStore {
     init() {
         let stored = UserDefaults.standard.integer(forKey: Self.refreshIntervalKey)
         self.refreshIntervalMinutes = Self.availableIntervals.contains(stored) ? stored : Self.defaultRefreshInterval
-        self.menuBarDisplay = MenuBarDisplay(rawValue: UserDefaults.standard.integer(forKey: Self.menuBarDisplayKey)) ?? .both
+        let displayRaw = UserDefaults.standard.object(forKey: Self.menuBarDisplayKey) as? Int
+        self.menuBarDisplay = displayRaw.flatMap(MenuBarDisplay.init(rawValue:)) ?? .both
     }
 }
