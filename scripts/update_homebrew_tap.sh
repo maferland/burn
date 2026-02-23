@@ -20,6 +20,11 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 
 gh repo clone maferland/homebrew-tap "$WORK_DIR" -- --depth 1
 
+# Ensure git push can authenticate (gh clone uses GH_TOKEN but git push doesn't)
+if [ -n "${GH_TOKEN:-}" ]; then
+    git -C "$WORK_DIR" remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/maferland/homebrew-tap.git"
+fi
+
 CASK_FILE="$WORK_DIR/Casks/burn.rb"
 if [ ! -f "$CASK_FILE" ]; then
     echo "Error: $CASK_FILE not found in tap repo"
