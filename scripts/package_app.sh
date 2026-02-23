@@ -20,6 +20,11 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
 cp "${EXECUTABLE}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
+# Copy Swift Package resource bundles
+for bundle in "${BUILD_DIR}"/*.bundle; do
+    [ -d "$bundle" ] && cp -R "$bundle" "${APP_BUNDLE}/Contents/Resources/"
+done
+
 cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
