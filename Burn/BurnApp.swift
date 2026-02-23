@@ -60,7 +60,6 @@ struct MenuBarLabel: View {
     }
 }
 
-@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
     lazy var service = UsageService(settings: settings)
