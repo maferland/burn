@@ -75,12 +75,17 @@ echo "Created ${APP_BUNDLE}"
 
 if [ -n "${SIGN_IDENTITY:-}" ]; then
     echo "Signing app bundle..."
-    codesign --sign "${SIGN_IDENTITY}" \
-        --options runtime \
-        --timestamp \
-        --deep \
-        --force \
-        "${APP_BUNDLE}"
+    CODESIGN_ARGS=(
+        --sign "${SIGN_IDENTITY}"
+        --options runtime
+        --timestamp
+        --deep
+        --force
+    )
+    if [ -n "${ENTITLEMENTS_FILE:-}" ]; then
+        CODESIGN_ARGS+=(--entitlements "${ENTITLEMENTS_FILE}")
+    fi
+    codesign "${CODESIGN_ARGS[@]}" "${APP_BUNDLE}"
     echo "Signed ${APP_BUNDLE}"
 fi
 
