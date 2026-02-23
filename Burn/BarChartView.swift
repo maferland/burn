@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BarChartView: View {
     let days: [DailyUsage]
+    @State private var hoveredDay: String?
 
     private var maxCost: Double {
         days.map(\.totalCost).max() ?? 1
@@ -11,16 +12,35 @@ struct BarChartView: View {
         GeometryReader { geo in
             HStack(alignment: .bottom, spacing: 4) {
                 ForEach(days) { day in
+                    let isHovered = hoveredDay == day.id
+
                     VStack(spacing: 2) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.accentColor)
-                            .frame(height: barHeight(cost: day.totalCost, maxHeight: geo.size.height - 16))
+                        ZStack(alignment: .top) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(isHovered ? Color.accentColor : Color.accentColor.opacity(0.8))
+                                .frame(height: barHeight(cost: day.totalCost, maxHeight: geo.size.height - 16))
+
+                            if isHovered {
+                                Text(String(format: "$%.2f", day.totalCost))
+                                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 2)
+                                    .background(Color.black.opacity(0.75))
+                                    .cornerRadius(4)
+                                    .offset(y: -20)
+                                    .fixedSize()
+                            }
+                        }
 
                         Text(Self.dayLabel(day.date))
                             .font(.system(size: 8))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(isHovered ? .primary : .secondary)
                     }
                     .frame(maxWidth: .infinity)
+                    .onHover { hovering in
+                        hoveredDay = hovering ? day.id : nil
+                    }
                 }
             }
         }

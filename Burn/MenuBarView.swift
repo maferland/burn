@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarView: View {
@@ -23,6 +24,8 @@ struct MenuBarView: View {
                 settingsSection
             }
 
+            Divider()
+            supportSection
             Divider()
             quitSection
         }
@@ -184,6 +187,18 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    private var supportSection: some View {
+        Button {
+            NSWorkspace.shared.open(URL(string: "https://buymeacoffee.com/maferland")!)
+        } label: {
+            HStack {
+                Label("Buy Me a Coffee", systemImage: "cup.and.saucer")
+                Spacer()
+            }
+        }
+        .buttonStyle(MenuButtonStyle())
     }
 
     private var quitSection: some View {
