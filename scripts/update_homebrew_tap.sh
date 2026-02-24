@@ -26,13 +26,35 @@ if [ -n "${GH_TOKEN:-}" ]; then
 fi
 
 CASK_FILE="$WORK_DIR/Casks/burn.rb"
-if [ ! -f "$CASK_FILE" ]; then
-    echo "Error: $CASK_FILE not found in tap repo"
-    exit 1
-fi
 
-sed -i '' "s/version \".*\"/version \"$CASK_VERSION\"/" "$CASK_FILE"
-sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" "$CASK_FILE"
+# Write full cask file — burn repo is source of truth for cask structure
+cat > "$CASK_FILE" << CASK
+cask "burn" do
+  version "$CASK_VERSION"
+  sha256 "$SHA"
+
+  url "https://github.com/maferland/burn/releases/download/v#{version}/Burn-v#{version}-macos.dmg"
+  name "Burn"
+  desc "Track Claude Code spending from the macOS menu bar"
+  homepage "https://github.com/maferland/burn"
+
+  depends_on macos: ">= :sonoma"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  app "Burn.app"
+
+  zap trash: "~/Library/Preferences/com.maferland.burn.plist"
+
+  caveats <<~EOS
+    Burn requires ccusage to read Claude Code session data.
+    Install it with: npm install -g ccusage
+  EOS
+end
+CASK
 
 cd "$WORK_DIR"
 git add Casks/burn.rb

@@ -25,8 +25,7 @@ npm i -g ccusage
 
 **Homebrew** (recommended):
 ```bash
-brew tap maferland/tap
-brew install --cask burn
+brew install --cask maferland/tap/burn
 ```
 
 **Manual**: Download DMG from [Releases](https://github.com/maferland/burn/releases), open it, drag `Burn.app` to Applications.

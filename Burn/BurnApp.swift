@@ -49,7 +49,7 @@ struct MenuBarLabel: View {
     }
 
     static func loadMenuBarIcon() -> NSImage {
-        guard let url = Bundle.module.url(forResource: "MenuBarIcon@2x", withExtension: "png"),
+        guard let url = BurnResources.bundle.url(forResource: "MenuBarIcon@2x", withExtension: "png"),
               let image = NSImage(contentsOf: url) else {
             return NSImage(systemSymbolName: "dollarsign.circle", accessibilityDescription: "Burn")
                 ?? NSImage(size: NSSize(width: 18, height: 18))
