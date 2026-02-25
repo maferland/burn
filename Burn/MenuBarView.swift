@@ -19,12 +19,13 @@ struct MenuBarView: View {
             Divider()
             footerSection
 
-            if showSettings {
-                Divider()
-                settingsSection
-            }
-
             Divider()
+            VStack(spacing: 0) {
+                settingsSection
+                Divider()
+            }
+            .frame(maxHeight: showSettings ? .infinity : 0)
+            .clipped()
             supportSection
             Divider()
             quitSection
@@ -170,6 +171,9 @@ struct MenuBarView: View {
             }
 
             HStack {
+                Text("Start at Login")
+                    .font(.caption)
+                Spacer()
                 Toggle("", isOn: $launchAtLogin)
                     .toggleStyle(.switch)
                     .controlSize(.small)
@@ -181,9 +185,6 @@ struct MenuBarView: View {
                             LaunchAtLogin.disable()
                         }
                     }
-                Text("Start at Login")
-                    .font(.caption)
-                Spacer()
             }
         }
         .padding(.horizontal, 14)
@@ -219,12 +220,16 @@ struct MenuBarView: View {
         .keyboardShortcut("q")
     }
 
+    @ViewBuilder
     private var versionLabel: some View {
-        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
-            .font(.caption2)
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.bottom, 6)
+        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+           !version.isEmpty {
+            Text(version)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.bottom, 6)
+        }
     }
 
     // MARK: - Helpers
