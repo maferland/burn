@@ -64,7 +64,8 @@ final class ModelsTests: XCTestCase {
         let response = try JSONDecoder().decode(CCUsageResponse.self, from: json.data(using: .utf8)!)
         let usage = UsageData.from(response: response)
         XCTAssertEqual(usage.todayCost, 0)
-        XCTAssertTrue(usage.last7Days.isEmpty)
+        XCTAssertEqual(usage.last7Days.count, 7)
+        XCTAssertTrue(usage.last7Days.allSatisfy { $0.totalCost == 0 })
         XCTAssertEqual(usage.currentMonthTotal, 0)
     }
 

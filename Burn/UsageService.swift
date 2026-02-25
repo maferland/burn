@@ -10,8 +10,14 @@ final class UsageService: @unchecked Sendable {
     private var refreshTask: Task<Void, Never>?
     private let settings: SettingsStore
 
+    private static let cacheFile: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        return caches.appendingPathComponent("com.maferland.burn/usage-cache.json")
+    }()
+
     init(settings: SettingsStore) {
         self.settings = settings
+        loadCache()
     }
 
     func startAutoRefresh() {
@@ -48,6 +54,7 @@ final class UsageService: @unchecked Sendable {
                     self.usageData = data
                     self.isLoading = false
                 }
+                self.saveCache(response)
             } catch is CancellationError {
                 await MainActor.run { self.isLoading = false }
             } catch {
@@ -57,6 +64,22 @@ final class UsageService: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    // MARK: - Disk cache
+
+    private func loadCache() {
+        guard let data = try? Data(contentsOf: Self.cacheFile),
+              let response = try? JSONDecoder().decode(CCUsageResponse.self, from: data) else {
+            return
+        }
+        usageData = UsageData.from(response: response)
+    }
+
+    private func saveCache(_ response: CCUsageResponse) {
+        let dir = Self.cacheFile.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(response).write(to: Self.cacheFile)
     }
 
     private func scheduleTimer() {
