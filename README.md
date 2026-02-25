@@ -14,13 +14,6 @@
 
 See today's cost at a glance. Click for a 7-day chart and monthly total.
 
-## Prerequisites
-
-Burn shells out to [ccusage](https://github.com/ryoppippi/ccusage) for usage data:
-```bash
-npm i -g ccusage
-```
-
 ## Install
 
 **Homebrew** (recommended):
@@ -49,12 +42,11 @@ Run `Burn`. A flame icon appears in your menu bar with today's spend.
 
 ## Privacy
 
-Burn runs `ccusage` locally. No network requests beyond what ccusage does. No data collection. No analytics.
+Burn reads Claude Code session data directly from `~/.claude/projects/`. Model pricing is fetched from [LiteLLM](https://github.com/BerriAI/litellm) and cached locally. No data collection. No analytics.
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- [ccusage](https://github.com/ryoppippi/ccusage) (`npm i -g ccusage`)
 
 ## Support
 
