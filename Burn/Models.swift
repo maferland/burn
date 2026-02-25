@@ -57,12 +57,18 @@ struct UsageData {
 
         let calendar = Calendar.current
         let now = Date()
-        let sevenDaysAgo = calendar.date(byAdding: .day, value: -6, to: now)!
-        let sevenDaysAgoStr = dateString(from: sevenDaysAgo)
-
-        let last7Days = response.daily
-            .filter { $0.date >= sevenDaysAgoStr && $0.date <= today }
-            .sorted { $0.date < $1.date }
+        let existingByDate = Dictionary(
+            uniqueKeysWithValues: response.daily.map { ($0.date, $0) }
+        )
+        let last7Days: [DailyUsage] = (0...6).map { offset in
+            let day = calendar.date(byAdding: .day, value: -6 + offset, to: now)!
+            let dayStr = dateString(from: day)
+            return existingByDate[dayStr] ?? DailyUsage(
+                date: dayStr, inputTokens: 0, outputTokens: 0,
+                cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0,
+                totalCost: 0, modelsUsed: [], modelBreakdowns: []
+            )
+        }
 
         let monthPrefix = String(today.prefix(7))
         let currentMonthTotal = response.daily

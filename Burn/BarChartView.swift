@@ -15,23 +15,22 @@ struct BarChartView: View {
                     let isHovered = hoveredDay == day.id
 
                     VStack(spacing: 2) {
-                        ZStack(alignment: .top) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(isHovered ? Color.accentColor : Color.accentColor.opacity(0.8))
-                                .frame(height: barHeight(cost: day.totalCost, maxHeight: geo.size.height - 16))
-
-                            if isHovered {
-                                Text(String(format: "$%.2f", day.totalCost))
-                                    .font(.system(size: 9, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 2)
-                                    .background(Color.black.opacity(0.75))
-                                    .cornerRadius(4)
-                                    .offset(y: -20)
-                                    .fixedSize()
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(isHovered ? Color.accentColor : Color.accentColor.opacity(0.8))
+                            .frame(height: barHeight(cost: day.totalCost, maxHeight: geo.size.height - 16))
+                            .overlay(alignment: .top) {
+                                if isHovered {
+                                    Text(String(format: "$%.2f", day.totalCost))
+                                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Color.black.opacity(0.75))
+                                        .cornerRadius(4)
+                                        .fixedSize()
+                                        .offset(y: -20)
+                                }
                             }
-                        }
 
                         Text(Self.dayLabel(day.date))
                             .font(.system(size: 8))
