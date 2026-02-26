@@ -46,7 +46,7 @@ struct BarChartView: View {
     }
 
     private func barHeight(cost: Double, maxHeight: CGFloat) -> CGFloat {
-        guard maxCost > 0 else { return 2 }
+        guard maxCost > 0, cost > 0 else { return 0 }
         return max(2, CGFloat(cost / maxCost) * maxHeight)
     }
 
