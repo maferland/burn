@@ -48,11 +48,6 @@ cask "burn" do
   app "Burn.app"
 
   zap trash: "~/Library/Preferences/com.maferland.burn.plist"
-
-  caveats <<~EOS
-    Burn requires ccusage to read Claude Code session data.
-    Install it with: npm install -g ccusage
-  EOS
 end
 CASK
 
