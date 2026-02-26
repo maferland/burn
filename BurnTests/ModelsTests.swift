@@ -44,7 +44,7 @@ final class ModelsTests: XCTestCase {
         }
 
         XCTAssertFalse(usage.last7Days.isEmpty)
-        XCTAssertTrue(usage.currentMonthTotal > 0)
+        XCTAssertTrue(usage.monthTotal > 0)
         XCTAssertNotEqual(usage.lastRefreshDate, .distantPast)
     }
 
@@ -66,7 +66,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(usage.todayCost, 0)
         XCTAssertEqual(usage.last7Days.count, 7)
         XCTAssertTrue(usage.last7Days.allSatisfy { $0.totalCost == 0 })
-        XCTAssertEqual(usage.currentMonthTotal, 0)
+        XCTAssertEqual(usage.monthTotal, 0)
     }
 
     func testLast7DaysSorted() throws {
@@ -91,8 +91,70 @@ final class ModelsTests: XCTestCase {
 
         let todayStr = UsageData.dateString(from: Date())
         if todayStr.hasPrefix("2026-02") {
-            XCTAssertEqual(usage.currentMonthTotal, 30.0, accuracy: 0.01)
+            XCTAssertEqual(usage.monthTotal, 30.0, accuracy: 0.01)
         }
+    }
+
+    // MARK: - Week Navigation
+
+    func testWeekOffsetZeroIsCurrentWeek() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let usage = UsageData.from(response: response, weekOffset: 0)
+        XCTAssertTrue(usage.isCurrentWeek)
+    }
+
+    func testWeekOffsetNegativeIsNotCurrentWeek() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let usage = UsageData.from(response: response, weekOffset: -1)
+        XCTAssertFalse(usage.isCurrentWeek)
+    }
+
+    func testWeekOffsetShiftsDays() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let current = UsageData.from(response: response, weekOffset: 0)
+        let previous = UsageData.from(response: response, weekOffset: -1)
+
+        XCTAssertEqual(current.last7Days.count, 7)
+        XCTAssertEqual(previous.last7Days.count, 7)
+
+        // Previous week ends before current week starts
+        XCTAssertLessThan(previous.last7Days.last!.date, current.last7Days.first!.date)
+    }
+
+    func testWeekOffsetMonthTotalMatchesWeekMonth() throws {
+        let json = """
+        {"daily":[
+            {"date":"2026-01-15","inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":50.00,"modelsUsed":[],"modelBreakdowns":[]},
+            {"date":"2026-02-15","inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":30.00,"modelsUsed":[],"modelBreakdowns":[]}
+        ],"totals":{"inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":80.00}}
+        """
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: json.data(using: .utf8)!)
+
+        // Go far enough back to land in January
+        var offset = 0
+        var usage = UsageData.from(response: response, weekOffset: offset)
+        while UsageData.dateString(from: usage.weekEnd).hasPrefix("2026-02") && offset > -10 {
+            offset -= 1
+            usage = UsageData.from(response: response, weekOffset: offset)
+        }
+
+        if UsageData.dateString(from: usage.weekEnd).hasPrefix("2026-01") {
+            XCTAssertEqual(usage.monthTotal, 50.0, accuracy: 0.01)
+        }
+    }
+
+    func testWeekTotalComputedProperty() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let usage = UsageData.from(response: response, weekOffset: 0)
+        let expected = usage.last7Days.reduce(0) { $0 + $1.totalCost }
+        XCTAssertEqual(usage.weekTotal, expected, accuracy: 0.001)
+    }
+
+    func testTodayCostUnchangedByOffset() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let current = UsageData.from(response: response, weekOffset: 0)
+        let past = UsageData.from(response: response, weekOffset: -2)
+        XCTAssertEqual(current.todayCost, past.todayCost)
     }
 
     // MARK: - Sample Data

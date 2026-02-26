@@ -6,6 +6,11 @@ struct MenuBarView: View {
     let settings: SettingsStore
     @State private var showSettings = false
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var weekOffset = 0
+
+    private var displayData: UsageData {
+        weekOffset == 0 ? service.usageData : service.usageData(weekOffset: weekOffset)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,10 +68,13 @@ struct MenuBarView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             } else {
-                Text(formatCost(service.usageData.todayCost))
+                let data = displayData
+                let cost = data.isCurrentWeek ? data.todayCost : data.weekTotal
+                let label = data.isCurrentWeek ? "Today's spend" : "\(weekRangeLabel(data)) spend"
+                Text(formatCost(cost))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
-                Text("Today's spend")
+                Text(label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -75,34 +83,59 @@ struct MenuBarView: View {
     }
 
     private var chartSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Last 7 Days")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
+        let data = displayData
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Button {
+                    weekOffset -= 1
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
 
-            if service.usageData.last7Days.isEmpty {
+                Text(data.isCurrentWeek ? "This Week" : weekRangeLabel(data))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+
+                Button {
+                    weekOffset += 1
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(weekOffset < 0 ? .secondary : .quaternary)
+                }
+                .buttonStyle(.plain)
+                .disabled(weekOffset >= 0)
+            }
+            .padding(.horizontal, 14)
+
+            if data.last7Days.isEmpty {
                 Text("No data")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 8)
             } else {
-                BarChartView(days: service.usageData.last7Days)
+                BarChartView(days: data.last7Days)
                     .frame(height: 80)
                     .padding(.horizontal, 14)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 
     private var monthSection: some View {
-        HStack {
-            Text("This Month")
+        let data = displayData
+        return HStack {
+            Text(data.isCurrentWeek ? "This Month" : monthLabel(data))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Text(formatCost(service.usageData.currentMonthTotal))
+            Text(formatCost(data.monthTotal))
                 .font(.system(.body, design: .rounded).bold())
         }
         .padding(.horizontal, 14)
@@ -220,22 +253,42 @@ struct MenuBarView: View {
         .keyboardShortcut("q")
     }
 
-    @ViewBuilder
     private var versionLabel: some View {
-        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-           !version.isEmpty {
-            Text(version)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.bottom, 6)
-        }
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            ?? BurnVersion.current
+        return Text(version)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, 6)
     }
 
     // MARK: - Helpers
 
     private func formatCost(_ cost: Double) -> String {
         String(format: "$%.2f", cost)
+    }
+
+    private static let weekDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    private static let monthNameFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMMM"
+        return f
+    }()
+
+    private func weekRangeLabel(_ data: UsageData) -> String {
+        let start = Self.weekDayFormatter.string(from: data.weekStart)
+        let end = Self.weekDayFormatter.string(from: data.weekEnd)
+        return "\(start) – \(end)"
+    }
+
+    private func monthLabel(_ data: UsageData) -> String {
+        Self.monthNameFormatter.string(from: data.weekEnd)
     }
 
     private var lastRefreshText: String {
