@@ -6,6 +6,7 @@ final class UsageService: @unchecked Sendable {
     var isLoading = false
     var errorMessage: String?
 
+    private(set) var lastResponse: CCUsageResponse?
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private let settings: SettingsStore
@@ -51,6 +52,7 @@ final class UsageService: @unchecked Sendable {
                 }.value
                 let data = UsageData.from(response: response)
                 await MainActor.run {
+                    self.lastResponse = response
                     self.usageData = data
                     self.isLoading = false
                 }
@@ -68,11 +70,17 @@ final class UsageService: @unchecked Sendable {
 
     // MARK: - Disk cache
 
+    func usageData(weekOffset: Int) -> UsageData {
+        guard let response = lastResponse else { return .empty }
+        return UsageData.from(response: response, weekOffset: weekOffset)
+    }
+
     private func loadCache() {
         guard let data = try? Data(contentsOf: Self.cacheFile),
               let response = try? JSONDecoder().decode(CCUsageResponse.self, from: data) else {
             return
         }
+        lastResponse = response
         usageData = UsageData.from(response: response)
     }
 

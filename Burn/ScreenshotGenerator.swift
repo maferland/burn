@@ -9,7 +9,10 @@ enum ScreenshotGenerator {
         service.usageData = UsageData(
             todayCost: 202.46,
             last7Days: mockDays(),
-            currentMonthTotal: 3813.63,
+            monthTotal: 3813.63,
+            isCurrentWeek: true,
+            weekStart: Calendar.current.date(byAdding: .day, value: -6, to: Date())!,
+            weekEnd: Date(),
             lastRefreshDate: Date()
         )
 
