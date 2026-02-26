@@ -13,7 +13,8 @@ enum ScreenshotGenerator {
             isCurrentWeek: true,
             weekStart: Calendar.current.date(byAdding: .day, value: -6, to: Date())!,
             weekEnd: Date(),
-            lastRefreshDate: Date()
+            lastRefreshDate: Date(),
+            earliestDate: UsageData.dateString(from: Calendar.current.date(byAdding: .day, value: -30, to: Date())!)
         )
 
         let view = MenuBarView(service: service, settings: settings)
