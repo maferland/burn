@@ -69,14 +69,9 @@ struct MenuBarView: View {
                     .foregroundStyle(.red)
             } else {
                 let data = displayData
-                let cost = data.isCurrentWeek ? data.todayCost : data.weekTotal
-                let label = data.isCurrentWeek ? "Today's spend" : "\(weekRangeLabel(data)) spend"
-                Text(formatCost(cost))
+                Text(formatCost(data.weekTotal))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 12)
@@ -91,14 +86,26 @@ struct MenuBarView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(data.canGoBack ? .secondary : .quaternary)
                 }
                 .buttonStyle(.plain)
+                .disabled(!data.canGoBack)
 
-                Text(data.isCurrentWeek ? "This Week" : weekRangeLabel(data))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if data.isCurrentWeek {
+                    Spacer()
+                } else {
+                    Button {
+                        weekOffset = 0
+                    } label: {
+                        Text("This Week")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(.quaternary, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                     .frame(maxWidth: .infinity)
+                }
 
                 Button {
                     weekOffset += 1
@@ -123,6 +130,12 @@ struct MenuBarView: View {
                     .frame(height: 80)
                     .padding(.horizontal, 14)
             }
+
+            Text(weekRangeLabel(data))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
         }
         .padding(.top, 8)
         .padding(.bottom, 12)

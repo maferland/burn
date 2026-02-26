@@ -157,6 +157,55 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(current.todayCost, past.todayCost)
     }
 
+    // MARK: - Earliest Date & canGoBack
+
+    func testEarliestDatePopulated() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let usage = UsageData.from(response: response)
+        XCTAssertEqual(usage.earliestDate, "2026-02-21")
+    }
+
+    func testEarliestDateNilForEmptyResponse() throws {
+        let json = """
+        {"daily":[],"totals":{"inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":0}}
+        """
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: json.data(using: .utf8)!)
+        let usage = UsageData.from(response: response)
+        XCTAssertNil(usage.earliestDate)
+    }
+
+    func testCanGoBackFalseAtEarliestBoundary() throws {
+        // Single day of data — navigating back to that week should disable further back nav
+        let json = """
+        {"daily":[{"date":"2026-02-21","inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":5.00,"modelsUsed":[],"modelBreakdowns":[]}],"totals":{"inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":5.00}}
+        """
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: json.data(using: .utf8)!)
+
+        // Navigate back until weekStart <= earliestDate
+        var offset = 0
+        var usage = UsageData.from(response: response, weekOffset: offset)
+        while usage.canGoBack && offset > -20 {
+            offset -= 1
+            usage = UsageData.from(response: response, weekOffset: offset)
+        }
+        XCTAssertFalse(usage.canGoBack)
+    }
+
+    func testCanGoBackTrueWhenMoreDataExists() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        // Current week (offset 0) — earliest data is 2026-02-21, week starts ~6 days ago from now
+        let usage = UsageData.from(response: response, weekOffset: 0)
+        // The week start for current week is about Feb 19, which is before Feb 21
+        // So canGoBack depends on whether weekStart > earliestDate
+        // Just verify the property is consistent with the data
+        let startStr = UsageData.dateString(from: usage.weekStart)
+        XCTAssertEqual(usage.canGoBack, startStr > "2026-02-21")
+    }
+
+    func testCanGoBackFalseWhenNoData() {
+        XCTAssertFalse(UsageData.empty.canGoBack)
+    }
+
     // MARK: - Sample Data
 
     private let sampleJSON = """

@@ -46,8 +46,15 @@ struct UsageData {
     let weekStart: Date
     let weekEnd: Date
     let lastRefreshDate: Date
+    let earliestDate: String?
 
     var weekTotal: Double { last7Days.reduce(0) { $0 + $1.totalCost } }
+
+    var canGoBack: Bool {
+        guard let earliest = earliestDate else { return false }
+        let startStr = UsageData.dateString(from: weekStart)
+        return startStr > earliest
+    }
 
     static let empty = UsageData(
         todayCost: 0,
@@ -56,7 +63,8 @@ struct UsageData {
         isCurrentWeek: true,
         weekStart: Date(),
         weekEnd: Date(),
-        lastRefreshDate: .distantPast
+        lastRefreshDate: .distantPast,
+        earliestDate: nil
     )
 
     static func from(response: CCUsageResponse, weekOffset: Int = 0) -> UsageData {
@@ -86,6 +94,8 @@ struct UsageData {
             .filter { $0.date.hasPrefix(monthPrefix) }
             .reduce(0) { $0 + $1.totalCost }
 
+        let earliestDate = response.daily.filter { $0.totalCost > 0 }.min(by: { $0.date < $1.date })?.date
+
         return UsageData(
             todayCost: todayCost,
             last7Days: last7Days,
@@ -93,7 +103,8 @@ struct UsageData {
             isCurrentWeek: weekOffset == 0,
             weekStart: startDay,
             weekEnd: endDay,
-            lastRefreshDate: now
+            lastRefreshDate: now,
+            earliestDate: earliestDate
         )
     }
 
