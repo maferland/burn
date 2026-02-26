@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+enum BurnVersion {
+    static let current = "1.5.0"
+}
+
 @main
 struct BurnApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
