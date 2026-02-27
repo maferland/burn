@@ -69,9 +69,12 @@ struct MenuBarView: View {
                     .foregroundStyle(.red)
             } else {
                 let data = displayData
-                Text(formatCost(data.weekTotal))
+                Text(formatCost(data.todayCost))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
+                Text("Today")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 12)
@@ -143,13 +146,23 @@ struct MenuBarView: View {
 
     private var monthSection: some View {
         let data = displayData
-        return HStack {
-            Text(data.isCurrentWeek ? "This Month" : monthLabel(data))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(formatCost(data.monthTotal))
-                .font(.system(.body, design: .rounded).bold())
+        return HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(data.isCurrentWeek ? "This Week" : weekRangeLabel(data))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(formatCost(data.weekTotal))
+                    .font(.system(.body, design: .rounded).bold())
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(data.isCurrentWeek ? "This Month" : monthLabel(data))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(formatCost(data.monthTotal))
+                    .font(.system(.body, design: .rounded).bold())
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
