@@ -7,9 +7,9 @@ enum ScreenshotGenerator {
         let service = UsageService(settings: settings)
 
         service.usageData = UsageData(
-            todayCost: 202.46,
+            todayCost: 18.73,
             last7Days: mockDays(),
-            monthTotal: 3813.63,
+            monthTotal: 142.58,
             isCurrentWeek: true,
             weekStart: Calendar.current.date(byAdding: .day, value: -6, to: Date())!,
             weekEnd: Date(),
@@ -48,7 +48,7 @@ enum ScreenshotGenerator {
     private static func mockDays() -> [DailyUsage] {
         let calendar = Calendar.current
         let today = Date()
-        let costs: [Double] = [85.20, 120.50, 95.30, 180.75, 45.60, 150.90, 202.46]
+        let costs: [Double] = [12.40, 22.30, 18.90, 31.50, 8.20, 30.55, 18.73]
 
         return (0..<7).map { i in
             let date = calendar.date(byAdding: .day, value: -(6 - i), to: today)!
