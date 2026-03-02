@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "claude-usage-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/maferland/claude-usage-kit",
+      "state" : {
+        "revision" : "cb979d27ec77b13cc7cb6dacb99e11823f1ada91",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 2
+}
