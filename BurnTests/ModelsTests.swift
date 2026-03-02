@@ -10,7 +10,7 @@ final class ModelsTests: XCTestCase {
         let response = try JSONDecoder().decode(CCUsageResponse.self, from: data)
 
         XCTAssertEqual(response.daily.count, 3)
-        XCTAssertEqual(response.daily[0].date, "2026-02-21")
+        XCTAssertEqual(response.daily[0].date, sampleDates[0])
         XCTAssertEqual(response.daily[0].totalCost, 12.50)
         XCTAssertEqual(response.daily[0].inputTokens, 100_000)
         XCTAssertEqual(response.daily[0].outputTokens, 50_000)
@@ -37,12 +37,7 @@ final class ModelsTests: XCTestCase {
         let response = try JSONDecoder().decode(CCUsageResponse.self, from: data)
         let usage = UsageData.from(response: response)
 
-        let todayStr = UsageData.dateString(from: Date())
-
-        if todayStr == "2026-02-23" {
-            XCTAssertEqual(usage.todayCost, 68.82)
-        }
-
+        XCTAssertEqual(usage.todayCost, 68.82)
         XCTAssertFalse(usage.last7Days.isEmpty)
         XCTAssertTrue(usage.monthTotal > 0)
         XCTAssertNotEqual(usage.lastRefreshDate, .distantPast)
@@ -162,7 +157,7 @@ final class ModelsTests: XCTestCase {
     func testEarliestDatePopulated() throws {
         let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
         let usage = UsageData.from(response: response)
-        XCTAssertEqual(usage.earliestDate, "2026-02-21")
+        XCTAssertEqual(usage.earliestDate, sampleDates[0])
     }
 
     func testEarliestDateNilForEmptyResponse() throws {
@@ -193,13 +188,9 @@ final class ModelsTests: XCTestCase {
 
     func testCanGoBackTrueWhenMoreDataExists() throws {
         let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
-        // Current week (offset 0) — earliest data is 2026-02-21, week starts ~6 days ago from now
         let usage = UsageData.from(response: response, weekOffset: 0)
-        // The week start for current week is about Feb 19, which is before Feb 21
-        // So canGoBack depends on whether weekStart > earliestDate
-        // Just verify the property is consistent with the data
         let startStr = UsageData.dateString(from: usage.weekStart)
-        XCTAssertEqual(usage.canGoBack, startStr > "2026-02-21")
+        XCTAssertEqual(usage.canGoBack, startStr > sampleDates[0])
     }
 
     func testCanGoBackFalseWhenNoData() {
@@ -208,86 +199,24 @@ final class ModelsTests: XCTestCase {
 
     // MARK: - Sample Data
 
-    private let sampleJSON = """
-    {
-        "daily": [
-            {
-                "date": "2026-02-21",
-                "inputTokens": 100000,
-                "outputTokens": 50000,
-                "cacheCreationTokens": 10000,
-                "cacheReadTokens": 5000,
-                "totalTokens": 165000,
-                "totalCost": 12.50,
-                "modelsUsed": ["claude-opus-4-6"],
-                "modelBreakdowns": [
-                    {
-                        "modelName": "claude-opus-4-6",
-                        "inputTokens": 100000,
-                        "outputTokens": 50000,
-                        "cacheCreationTokens": 10000,
-                        "cacheReadTokens": 5000,
-                        "cost": 12.50
-                    }
-                ]
-            },
-            {
-                "date": "2026-02-22",
-                "inputTokens": 200000,
-                "outputTokens": 80000,
-                "cacheCreationTokens": 20000,
-                "cacheReadTokens": 8000,
-                "totalTokens": 308000,
-                "totalCost": 37.50,
-                "modelsUsed": ["claude-opus-4-6", "claude-sonnet-4-20250514"],
-                "modelBreakdowns": [
-                    {
-                        "modelName": "claude-opus-4-6",
-                        "inputTokens": 150000,
-                        "outputTokens": 60000,
-                        "cacheCreationTokens": 15000,
-                        "cacheReadTokens": 6000,
-                        "cost": 30.00
-                    },
-                    {
-                        "modelName": "claude-sonnet-4-20250514",
-                        "inputTokens": 50000,
-                        "outputTokens": 20000,
-                        "cacheCreationTokens": 5000,
-                        "cacheReadTokens": 2000,
-                        "cost": 7.50
-                    }
-                ]
-            },
-            {
-                "date": "2026-02-23",
-                "inputTokens": 500000,
-                "outputTokens": 200000,
-                "cacheCreationTokens": 50000,
-                "cacheReadTokens": 20000,
-                "totalTokens": 770000,
-                "totalCost": 68.82,
-                "modelsUsed": ["claude-opus-4-6"],
-                "modelBreakdowns": [
-                    {
-                        "modelName": "claude-opus-4-6",
-                        "inputTokens": 500000,
-                        "outputTokens": 200000,
-                        "cacheCreationTokens": 50000,
-                        "cacheReadTokens": 20000,
-                        "cost": 68.82
-                    }
-                ]
-            }
-        ],
-        "totals": {
-            "inputTokens": 800000,
-            "outputTokens": 330000,
-            "cacheCreationTokens": 80000,
-            "cacheReadTokens": 33000,
-            "totalTokens": 1243000,
-            "totalCost": 118.82
+    private var sampleDates: [String] {
+        let today = Date()
+        return (0..<3).map { i in
+            UsageData.dateString(from: Calendar.current.date(byAdding: .day, value: -(2 - i), to: today)!)
         }
     }
-    """
+
+    private var sampleJSON: String {
+        let d = sampleDates
+        return """
+        {
+            "daily": [
+                {"date":"\(d[0])","inputTokens":100000,"outputTokens":50000,"cacheCreationTokens":10000,"cacheReadTokens":5000,"totalTokens":165000,"totalCost":12.50,"modelsUsed":["claude-opus-4-6"],"modelBreakdowns":[{"modelName":"claude-opus-4-6","inputTokens":100000,"outputTokens":50000,"cacheCreationTokens":10000,"cacheReadTokens":5000,"cost":12.50}]},
+                {"date":"\(d[1])","inputTokens":200000,"outputTokens":80000,"cacheCreationTokens":20000,"cacheReadTokens":8000,"totalTokens":308000,"totalCost":37.50,"modelsUsed":["claude-opus-4-6","claude-sonnet-4-20250514"],"modelBreakdowns":[{"modelName":"claude-opus-4-6","inputTokens":150000,"outputTokens":60000,"cacheCreationTokens":15000,"cacheReadTokens":6000,"cost":30.00},{"modelName":"claude-sonnet-4-20250514","inputTokens":50000,"outputTokens":20000,"cacheCreationTokens":5000,"cacheReadTokens":2000,"cost":7.50}]},
+                {"date":"\(d[2])","inputTokens":500000,"outputTokens":200000,"cacheCreationTokens":50000,"cacheReadTokens":20000,"totalTokens":770000,"totalCost":68.82,"modelsUsed":["claude-opus-4-6"],"modelBreakdowns":[{"modelName":"claude-opus-4-6","inputTokens":500000,"outputTokens":200000,"cacheCreationTokens":50000,"cacheReadTokens":20000,"cost":68.82}]}
+            ],
+            "totals": {"inputTokens":800000,"outputTokens":330000,"cacheCreationTokens":80000,"cacheReadTokens":33000,"totalTokens":1243000,"totalCost":118.82}
+        }
+        """
+    }
 }
