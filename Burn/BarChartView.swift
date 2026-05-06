@@ -1,44 +1,37 @@
 import SwiftUI
+import ClaudeUsageKit
 
 struct BarChartView: View {
     let days: [DailyUsage]
-    @State private var hoveredDay: String?
+    @Binding var selectedDayId: String?
 
     private var maxCost: Double {
         days.map(\.totalCost).max() ?? 1
+    }
+
+    private var effectiveSelectedId: String? {
+        selectedDayId ?? days.last?.id
     }
 
     var body: some View {
         GeometryReader { geo in
             HStack(alignment: .bottom, spacing: 4) {
                 ForEach(days) { day in
-                    let isHovered = hoveredDay == day.id
+                    let isSelected = effectiveSelectedId == day.id
 
                     VStack(spacing: 2) {
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(isHovered ? Color.accentColor : Color.accentColor.opacity(0.8))
+                            .fill(isSelected ? Color.accentColor : Color.accentColor.opacity(0.3))
                             .frame(height: barHeight(cost: day.totalCost, maxHeight: geo.size.height - 16))
-                            .overlay(alignment: .top) {
-                                if isHovered {
-                                    Text(String(format: "$%.2f", day.totalCost))
-                                        .font(.system(size: 9, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 2)
-                                        .background(Color.black.opacity(0.75))
-                                        .cornerRadius(4)
-                                        .fixedSize()
-                                        .offset(y: -20)
-                                }
-                            }
 
                         Text(Self.dayLabel(day.date))
-                            .font(.system(size: 8))
-                            .foregroundStyle(isHovered ? .primary : .secondary)
+                            .font(.system(size: 8, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? .primary : .secondary)
                     }
                     .frame(maxWidth: .infinity)
-                    .onHover { hovering in
-                        hoveredDay = hovering ? day.id : nil
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedDayId = day.id
                     }
                 }
             }

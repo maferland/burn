@@ -1,5 +1,6 @@
 import XCTest
 @testable import Burn
+import ClaudeUsageKit
 
 final class ModelsTests: XCTestCase {
 
@@ -195,6 +196,30 @@ final class ModelsTests: XCTestCase {
 
     func testCanGoBackFalseWhenNoData() {
         XCTAssertFalse(UsageData.empty.canGoBack)
+    }
+
+    // MARK: - TokenAggregates
+
+    func testTokenAggregatesEmpty() {
+        let agg = TokenAggregates.compute(response: nil, weekEnd: Date())
+        XCTAssertEqual(agg.todayInput, 0)
+        XCTAssertEqual(agg.weekInput, 0)
+        XCTAssertEqual(agg.monthInput, 0)
+    }
+
+    func testTokenAggregatesTodayMatchesResponse() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let agg = TokenAggregates.compute(response: response, weekEnd: Date())
+        // sampleJSON's last day is "today"
+        XCTAssertEqual(agg.todayInput, 500_000)
+        XCTAssertEqual(agg.todayOutput, 200_000)
+    }
+
+    func testTokenAggregatesWeekSumsLast7Days() throws {
+        let response = try JSONDecoder().decode(CCUsageResponse.self, from: sampleJSON.data(using: .utf8)!)
+        let agg = TokenAggregates.compute(response: response, weekEnd: Date())
+        XCTAssertEqual(agg.weekInput, 800_000)
+        XCTAssertEqual(agg.weekOutput, 330_000)
     }
 
     // MARK: - Sample Data
