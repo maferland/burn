@@ -1,4 +1,5 @@
 import Foundation
+import ClaudeUsageKit
 
 @Observable
 final class UsageService: @unchecked Sendable {
@@ -6,7 +7,7 @@ final class UsageService: @unchecked Sendable {
     var isLoading = false
     var errorMessage: String?
 
-    private(set) var lastResponse: CCUsageResponse?
+    var lastResponse: CCUsageResponse?
     private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private let settings: SettingsStore

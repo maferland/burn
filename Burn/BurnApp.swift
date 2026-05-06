@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum BurnVersion {
-    static let current = "1.8.0"
+    static let current = "1.9.0"
 }
 
 @main
@@ -35,8 +35,7 @@ struct MenuBarLabel: View {
         if !hasData {
             menuBarIcon
         } else {
-            let cost = service.usageData.todayCost
-            let amount = String(format: "$%.2f", cost)
+            let amount = String(format: "$%.2f", service.usageData.todayCost)
 
             switch settings.menuBarDisplay {
             case .icon:
