@@ -36,18 +36,21 @@ enum GitHubPRError: LocalizedError {
 enum GitHubPRService {
     /// Returns PRs the authenticated user opened that fall on `date` in the user's local timezone.
     // GitHub search's `--created=` filter is UTC-only, so a single-date query misses PRs created late local-day after UTC rollover. Query the 36h window covering yesterday-and-today UTC, then filter to the requested local day.
-    static func fetchPRsOpened(on date: Date) async throws -> [GitHubPR] {
+    static func fetchPRsOpened(on date: Date, owners: [String] = []) async throws -> [GitHubPR] {
         let cal = Calendar.current
         let startOfLocalDay = cal.startOfDay(for: date)
         let yesterdayUTC = cal.date(byAdding: .day, value: -1, to: startOfLocalDay)!
         let queryStart = isoDayFormatter.string(from: yesterdayUTC)
-        let args = [
+        var args = [
             "search", "prs",
             "--author=@me",
             "--created=>=\(queryStart)",
             "--json", "url,title,createdAt,repository",
             "--limit", "200",
         ]
+        for owner in owners {
+            args.append("--owner=\(owner)")
+        }
         let output = try await runGH(args: args)
         guard let data = output.data(using: .utf8) else {
             throw GitHubPRError.decodeFailed("non-utf8 output")

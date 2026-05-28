@@ -11,6 +11,12 @@ protocol BurnExtension: AnyObject {
     func menuBarSegment() -> Text?
 
     func popoverTab() -> AnyView
+
+    func settingsView() -> AnyView?
+}
+
+extension BurnExtension {
+    func settingsView() -> AnyView? { nil }
 }
 
 private struct OpenBurnSettingsKey: EnvironmentKey {

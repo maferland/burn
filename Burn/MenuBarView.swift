@@ -206,6 +206,9 @@ struct MenuBarView: View {
                         .controlSize(.small)
                         .labelsHidden()
                     }
+                    if registry.isEnabled(ext.id), let sub = ext.settingsView() {
+                        sub
+                    }
                 }
             }
         }

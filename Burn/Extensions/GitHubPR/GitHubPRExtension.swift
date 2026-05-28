@@ -6,6 +6,7 @@ import SwiftUI
 final class GitHubPRExtension: BurnExtension {
     let id = "github-pr"
     let displayName = "GitHub"
+    static let ownersKey = "github-pr.owners"
 
     let usageService: UsageService
     var prs: [GitHubPR] = []
@@ -13,18 +14,24 @@ final class GitHubPRExtension: BurnExtension {
     var isLoading = false
     var lastRefresh: Date?
 
+    var owners: [String] {
+        didSet { UserDefaults.standard.set(owners, forKey: Self.ownersKey) }
+    }
+
     init(usageService: UsageService) {
         self.usageService = usageService
+        self.owners = UserDefaults.standard.array(forKey: Self.ownersKey) as? [String] ?? []
     }
 
     func refresh() {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        let owners = self.owners
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let fetched = try await GitHubPRService.fetchPRsOpened(on: Date())
+                let fetched = try await GitHubPRService.fetchPRsOpened(on: Date(), owners: owners)
                 self.prs = fetched.sorted(by: { $0.createdAt > $1.createdAt })
                 self.lastRefresh = Date()
                 self.isLoading = false
@@ -33,6 +40,10 @@ final class GitHubPRExtension: BurnExtension {
                 self.isLoading = false
             }
         }
+    }
+
+    func settingsView() -> AnyView? {
+        AnyView(GitHubPRSettingsView(ext: self))
     }
 
     var todayCount: Int { prs.count }
@@ -123,14 +134,17 @@ struct GitHubPRTabView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 16)
         } else {
-            VStack(spacing: 0) {
-                ForEach(Array(ext.prs.enumerated()), id: \.element.id) { idx, pr in
-                    PRRow(pr: pr)
-                    if idx < ext.prs.count - 1 {
-                        Divider()
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(ext.prs.enumerated()), id: \.element.id) { idx, pr in
+                        PRRow(pr: pr)
+                        if idx < ext.prs.count - 1 {
+                            Divider()
+                        }
                     }
                 }
             }
+            .frame(maxHeight: 180)
             .padding(.vertical, 2)
         }
     }
@@ -174,5 +188,33 @@ private struct PRRow: View {
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
+    }
+}
+
+private struct GitHubPRSettingsView: View {
+    @Bindable var ext: GitHubPRExtension
+
+    private var ownersBinding: Binding<String> {
+        Binding(
+            get: { ext.owners.joined(separator: ", ") },
+            set: { newValue in
+                ext.owners = newValue
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+        )
+    }
+
+    var body: some View {
+        HStack {
+            Text("Orgs").font(.caption)
+            Spacer()
+            TextField("all (e.g., carta)", text: ownersBinding)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption2)
+                .frame(width: 130)
+                .onSubmit { ext.refresh() }
+        }
     }
 }
