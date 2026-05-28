@@ -78,8 +78,11 @@ fi
 
 echo "Created ${APP_BUNDLE}"
 
+: "${SIGN_IDENTITY:=$(security find-identity -p codesigning -v | awk -F'"' '/Developer ID Application/ {print $2; exit}')}"
+: "${ENTITLEMENTS_FILE:=Burn.entitlements}"
+
 if [ -n "${SIGN_IDENTITY:-}" ]; then
-    echo "Signing app bundle..."
+    echo "Signing app bundle with ${SIGN_IDENTITY}..."
     CODESIGN_ARGS=(
         --sign "${SIGN_IDENTITY}"
         --options runtime
@@ -87,11 +90,13 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
         --deep
         --force
     )
-    if [ -n "${ENTITLEMENTS_FILE:-}" ]; then
+    if [ -f "${ENTITLEMENTS_FILE}" ]; then
         CODESIGN_ARGS+=(--entitlements "${ENTITLEMENTS_FILE}")
     fi
     codesign "${CODESIGN_ARGS[@]}" "${APP_BUNDLE}"
     echo "Signed ${APP_BUNDLE}"
+else
+    echo "WARN: no Developer ID Application certificate found, skipping signing"
 fi
 
 echo "Creating DMG..."

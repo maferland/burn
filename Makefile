@@ -9,8 +9,11 @@ build:
 test:
 	swift test
 
+DOPPLER := $(shell command -v doppler 2>/dev/null)
+PACKAGE_RUNNER := $(if $(DOPPLER),$(DOPPLER) run --,)
+
 app: test
-	./scripts/package_app.sh $(NEXT_VERSION)
+	$(PACKAGE_RUNNER) ./scripts/package_app.sh $(NEXT_VERSION)
 
 install: app
 	cp -R Burn.app /Applications/
