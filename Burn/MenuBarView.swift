@@ -8,6 +8,7 @@ struct MenuBarView: View {
 
     @State private var showSettings = false
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var sessionID = UUID()
 
     var body: some View {
         let enabled = registry.enabledExtensions
@@ -20,6 +21,7 @@ struct MenuBarView: View {
             }
             activeTabContent(enabled: enabled)
                 .environment(\.burnTabBarVisible, showsTabBar)
+                .id(sessionID)
 
             Divider()
             footerSection
@@ -38,10 +40,25 @@ struct MenuBarView: View {
             versionLabel
         }
         .frame(width: 300)
-        .environment(\.openBurnSettings, { showSettings.toggle() })
-        .onAppear {
-            showSettings = false
+        .contentShape(Rectangle())
+        .onTapGesture {
+            NSApp.keyWindow?.makeFirstResponder(nil)
         }
+        .environment(\.openBurnSettings, { showSettings.toggle() })
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            guard let window = note.object as? NSWindow else { return }
+            let className = String(describing: type(of: window))
+            guard className.contains("MenuBarExtra") || className.contains("Popover") || className.contains("StatusBar") else { return }
+            resetToHome(enabled: enabled)
+        }
+    }
+
+    private func resetToHome(enabled: [any BurnExtension]) {
+        showSettings = false
+        if let first = enabled.first {
+            registry.activeTabId = first.id
+        }
+        sessionID = UUID()
     }
 
     private func tabBar(enabled: [any BurnExtension]) -> some View {
@@ -191,12 +208,12 @@ struct MenuBarView: View {
                     }
             }
 
-            if !registry.extensions.isEmpty {
+            if !registry.configurableExtensions.isEmpty {
                 Divider().padding(.vertical, 2)
                 Text("Extensions")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                ForEach(registry.orderedExtensions, id: \.id) { ext in
+                ForEach(registry.configurableExtensions, id: \.id) { ext in
                     settingsRow(ext.displayName) {
                         Toggle("", isOn: Binding(
                             get: { registry.isEnabled(ext.id) },

@@ -40,6 +40,23 @@ Run `Burn`. A flame icon appears in your menu bar with today's spend.
 - **Start at Login** — Run automatically when you log in
 - **Quit** — ⌘Q
 
+## Extensions
+
+Burn can show extra signals next to the cost. Extensions contribute a menu bar segment and a popover tab. They're toggled in **Settings → Extensions**.
+
+### GitHub
+
+Tracks pull requests you opened today, this week, and this month. The menu bar reads `$X · ⎇ N · $Y` where `Y` is `today's cost ÷ today's PR count` — your average cost per PR.
+
+Requires the [GitHub CLI](https://cli.github.com/) authenticated:
+
+```bash
+brew install gh
+gh auth login
+```
+
+In **Settings → Extensions → GitHub → Orgs**, type a comma-separated list of repository owners to filter (e.g. `carta, maferland`). Leave it empty to count every PR you can see.
+
 ## Privacy
 
 Burn reads Claude Code session data directly from `~/.claude/projects/`. Model pricing is fetched from [LiteLLM](https://github.com/BerriAI/litellm) and cached locally. No data collection. No analytics.
