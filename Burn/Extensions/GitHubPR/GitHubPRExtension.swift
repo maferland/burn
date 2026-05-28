@@ -134,10 +134,11 @@ struct GitHubPRTabView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 16)
         } else {
+            let costNote = ext.avgCostPerPR.map { Formatters.cost($0) }
             ScrollView {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     ForEach(Array(ext.prs.enumerated()), id: \.element.id) { idx, pr in
-                        PRRow(pr: pr)
+                        PRRow(pr: pr, costNote: costNote)
                         if idx < ext.prs.count - 1 {
                             Divider()
                         }
@@ -159,6 +160,7 @@ struct GitHubPRTabView: View {
 
 private struct PRRow: View {
     let pr: GitHubPR
+    let costNote: String?
 
     var body: some View {
         Button {
@@ -172,10 +174,16 @@ private struct PRRow: View {
                         .font(.caption)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    Text(pr.repository.nameWithOwner)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(pr.repository.nameWithOwner)
+                            .lineLimit(1)
+                        if let costNote {
+                            Text("· \(costNote)")
+                                .foregroundStyle(.quaternary)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "arrow.up.right.square")
@@ -192,29 +200,34 @@ private struct PRRow: View {
 }
 
 private struct GitHubPRSettingsView: View {
-    @Bindable var ext: GitHubPRExtension
-
-    private var ownersBinding: Binding<String> {
-        Binding(
-            get: { ext.owners.joined(separator: ", ") },
-            set: { newValue in
-                ext.owners = newValue
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-            }
-        )
-    }
+    let ext: GitHubPRExtension
+    @State private var input: String = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack {
             Text("Orgs").font(.caption)
             Spacer()
-            TextField("all (e.g., carta)", text: ownersBinding)
+            TextField("all", text: $input)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption2)
                 .frame(width: 130)
-                .onSubmit { ext.refresh() }
+                .focused($focused)
+                .onAppear { input = ext.owners.joined(separator: ", ") }
+                .onSubmit(commit)
+                .onChange(of: focused) { _, isFocused in
+                    if !isFocused { commit() }
+                }
         }
+    }
+
+    private func commit() {
+        let parsed = input
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard parsed != ext.owners else { return }
+        ext.owners = parsed
+        ext.refresh()
     }
 }
