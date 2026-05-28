@@ -19,7 +19,7 @@ final class UsageExtension: BurnExtension {
 
     func menuBarSegment() -> Text? {
         guard service.usageData.lastRefreshDate != .distantPast else { return nil }
-        let amount = String(format: "$%.2f", service.usageData.todayCost)
+        let amount = String(format: "$%.0f", service.usageData.todayCost)
         switch settings.menuBarDisplay {
         case .icon:    return Text("🔥")
         case .amount:  return Text(amount)

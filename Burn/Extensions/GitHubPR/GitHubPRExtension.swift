@@ -45,7 +45,7 @@ final class GitHubPRExtension: BurnExtension {
     // Unicode glyphs render in MenuBarExtra labels; SF Symbols interpolated into Text do not.
     func menuBarSegment() -> Text? {
         if todayCount > 0, let avg = avgCostPerPR {
-            return Text("⎇ \(todayCount) @ \(String(format: "$%.2f", avg))")
+            return Text("⎇ \(todayCount) · \(String(format: "$%.0f", avg))")
         }
         return Text("⎇ \(todayCount)")
     }
@@ -71,6 +71,8 @@ struct GitHubPRTabView: View {
                 errorBanner(error)
             }
             cards
+            Divider()
+            prList
         }
         .frame(maxWidth: .infinity)
     }
@@ -110,5 +112,67 @@ struct GitHubPRTabView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var prList: some View {
+        if ext.prs.isEmpty {
+            Text(emptyMessage)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 16)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(ext.prs.enumerated()), id: \.element.id) { idx, pr in
+                    PRRow(pr: pr)
+                    if idx < ext.prs.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var emptyMessage: String {
+        if ext.lastRefresh == nil && ext.isLoading {
+            return "Loading…"
+        }
+        return "No PRs opened today"
+    }
+}
+
+private struct PRRow: View {
+    let pr: GitHubPR
+
+    var body: some View {
+        Button {
+            if let url = URL(string: pr.url) {
+                NSWorkspace.shared.open(url)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pr.title)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(pr.repository.nameWithOwner)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right.square")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 }

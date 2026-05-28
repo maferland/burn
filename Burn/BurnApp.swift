@@ -31,7 +31,7 @@ struct MenuBarLabel: View {
         if texts.isEmpty {
             Image(nsImage: Self.loadMenuBarIcon())
         } else {
-            texts.dropFirst().reduce(texts[0]) { $0 + Text(" | ") + $1 }
+            texts.dropFirst().reduce(texts[0]) { $0 + Text(" · ") + $1 }
         }
     }
 
