@@ -11,41 +11,32 @@ struct BurnApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(service: appDelegate.service, settings: appDelegate.settings)
+            MenuBarView(
+                service: appDelegate.service,
+                settings: appDelegate.settings,
+                registry: appDelegate.registry
+            )
         } label: {
-            MenuBarLabel(service: appDelegate.service, settings: appDelegate.settings)
+            MenuBarLabel(registry: appDelegate.registry)
         }
         .menuBarExtraStyle(.window)
     }
 }
 
 struct MenuBarLabel: View {
-    let service: UsageService
-    let settings: SettingsStore
-
-    private var hasData: Bool {
-        service.usageData.lastRefreshDate != .distantPast
-    }
-
-    private var menuBarIcon: some View {
-        Image(nsImage: Self.loadMenuBarIcon())
-    }
+    let registry: ExtensionRegistry
 
     var body: some View {
-        if !hasData {
-            menuBarIcon
+        let segments = registry.enabledExtensions.compactMap { $0.menuBarSegment() }
+        if segments.isEmpty {
+            Image(nsImage: Self.loadMenuBarIcon())
         } else {
-            let amount = String(format: "$%.2f", service.usageData.todayCost)
-
-            switch settings.menuBarDisplay {
-            case .icon:
-                menuBarIcon
-            case .amount:
-                Text(amount)
-            case .both:
-                HStack(spacing: 4) {
-                    menuBarIcon
-                    Text(amount)
+            HStack(spacing: 4) {
+                ForEach(0..<segments.count, id: \.self) { i in
+                    segments[i]
+                    if i < segments.count - 1 {
+                        Text("|").foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
@@ -63,9 +54,15 @@ struct MenuBarLabel: View {
     }
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
     lazy var service = UsageService(settings: settings)
+    lazy var registry: ExtensionRegistry = {
+        let r = ExtensionRegistry()
+        r.register(UsageExtension(service: service, settings: settings))
+        return r
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let idx = CommandLine.arguments.firstIndex(of: "--screenshot") {
@@ -76,6 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.setActivationPolicy(.accessory)
+        _ = registry  // force lazy init so the registry is populated before MenuBarExtra renders
         service.startAutoRefresh()
     }
 }
