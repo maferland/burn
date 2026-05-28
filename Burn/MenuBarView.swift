@@ -10,8 +10,16 @@ struct MenuBarView: View {
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
-        VStack(spacing: 0) {
-            activeTabContent
+        let enabled = registry.enabledExtensions
+        let showsTabBar = enabled.count >= 2
+
+        return VStack(spacing: 0) {
+            if showsTabBar {
+                tabBar(enabled: enabled)
+                Divider()
+            }
+            activeTabContent(enabled: enabled)
+                .environment(\.burnTabBarVisible, showsTabBar)
 
             Divider()
             footerSection
@@ -36,9 +44,45 @@ struct MenuBarView: View {
         }
     }
 
+    private func tabBar(enabled: [any BurnExtension]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(enabled, id: \.id) { ext in
+                tabChip(ext: ext, isActive: ext.id == (registry.activeTabId ?? enabled.first?.id))
+            }
+            Spacer()
+            Button {
+                showSettings.toggle()
+            } label: {
+                Image(systemName: "gear").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .pointingHandCursor()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func tabChip(ext: any BurnExtension, isActive: Bool) -> some View {
+        Button {
+            registry.activeTabId = ext.id
+        } label: {
+            Text(ext.displayName)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    isActive ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                    in: Capsule()
+                )
+                .foregroundStyle(isActive ? .primary : .secondary)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+    }
+
     @ViewBuilder
-    private var activeTabContent: some View {
-        let enabled = registry.enabledExtensions
+    private func activeTabContent(enabled: [any BurnExtension]) -> some View {
         if let active = enabled.first(where: { $0.id == registry.activeTabId }) ?? enabled.first {
             active.popoverTab()
         } else {
@@ -96,7 +140,7 @@ struct MenuBarView: View {
                     get: { settings.refreshIntervalMinutes },
                     set: { newValue in
                         settings.refreshIntervalMinutes = newValue
-                        service.restartAutoRefresh()
+                        registry.restartAutoRefresh(intervalMinutes: newValue)
                     }
                 )) {
                     ForEach(SettingsStore.availableIntervals, id: \.self) { interval in

@@ -76,4 +76,26 @@ final class ExtensionRegistry {
     func refreshAll() {
         for ext in enabledExtensions { ext.refresh() }
     }
+
+    // MARK: - Auto refresh timer
+
+    private var timer: Timer?
+
+    func startAutoRefresh(intervalMinutes: Int) {
+        stopAutoRefresh()
+        refreshAll()
+        let interval = TimeInterval(intervalMinutes * 60)
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshAll() }
+        }
+    }
+
+    func stopAutoRefresh() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func restartAutoRefresh(intervalMinutes: Int) {
+        startAutoRefresh(intervalMinutes: intervalMinutes)
+    }
 }

@@ -8,7 +8,6 @@ final class UsageService: @unchecked Sendable {
     var errorMessage: String?
 
     var lastResponse: CCUsageResponse?
-    private var timer: Timer?
     private var refreshTask: Task<Void, Never>?
     private let settings: SettingsStore
 
@@ -20,23 +19,6 @@ final class UsageService: @unchecked Sendable {
     init(settings: SettingsStore) {
         self.settings = settings
         loadCache()
-    }
-
-    func startAutoRefresh() {
-        refresh()
-        scheduleTimer()
-    }
-
-    func stopAutoRefresh() {
-        timer?.invalidate()
-        timer = nil
-        refreshTask?.cancel()
-        refreshTask = nil
-    }
-
-    func restartAutoRefresh() {
-        stopAutoRefresh()
-        scheduleTimer()
     }
 
     func refresh() {
@@ -89,12 +71,5 @@ final class UsageService: @unchecked Sendable {
         let dir = Self.cacheFile.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? JSONEncoder().encode(response).write(to: Self.cacheFile)
-    }
-
-    private func scheduleTimer() {
-        let interval = TimeInterval(settings.refreshIntervalMinutes * 60)
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.refresh()
-        }
     }
 }
