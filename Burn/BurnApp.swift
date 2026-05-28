@@ -27,18 +27,11 @@ struct MenuBarLabel: View {
     let registry: ExtensionRegistry
 
     var body: some View {
-        let segments = registry.enabledExtensions.compactMap { $0.menuBarSegment() }
-        if segments.isEmpty {
+        let texts = registry.enabledExtensions.compactMap { $0.menuBarSegment() }
+        if texts.isEmpty {
             Image(nsImage: Self.loadMenuBarIcon())
         } else {
-            HStack(spacing: 4) {
-                ForEach(0..<segments.count, id: \.self) { i in
-                    segments[i]
-                    if i < segments.count - 1 {
-                        Text("|").foregroundStyle(.tertiary)
-                    }
-                }
-            }
+            texts.dropFirst().reduce(texts[0]) { $0 + Text(" · ") + $1 }
         }
     }
 
@@ -61,6 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
         r.register(UsageExtension(service: service, settings: settings))
+        r.register(GitHubPRExtension(usageService: service))
         return r
     }()
 
@@ -73,7 +67,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.setActivationPolicy(.accessory)
-        _ = registry  // force lazy init so the registry is populated before MenuBarExtra renders
-        service.startAutoRefresh()
+        registry.startAutoRefresh(intervalMinutes: settings.refreshIntervalMinutes)
     }
 }

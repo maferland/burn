@@ -113,6 +113,6 @@ private final class StubExtension: BurnExtension {
 
     func refresh() { refreshCount += 1 }
 
-    func menuBarSegment() -> AnyView? { AnyView(Text(id)) }
+    func menuBarSegment() -> Text? { Text(id) }
     func popoverTab() -> AnyView { AnyView(Text(id)) }
 }

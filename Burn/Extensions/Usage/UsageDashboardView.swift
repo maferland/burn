@@ -13,6 +13,7 @@ struct UsageDashboardView: View {
     let settings: SettingsStore
 
     @Environment(\.openBurnSettings) private var openSettings
+    @Environment(\.burnTabBarVisible) private var tabBarVisible
 
     @State private var weekOffset = 0
     @State private var selectedDayId: String?
@@ -87,8 +88,10 @@ struct UsageDashboardView: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if !tabBarVisible {
+                header
+                Divider()
+            }
             errorBanner
             heroSection
             Divider()
@@ -273,69 +276,34 @@ struct UsageDashboardView: View {
 
     private var monthSection: some View {
         let data = displayData
-        return HStack(spacing: 0) {
-            monthSectionColumn(
+        return HStack(spacing: 8) {
+            StatCard(
                 label: data.isCurrentWeek ? "This Week" : Formatters.weekRange(data),
-                primary: Formatters.formatPrimary(
+                value: Formatters.formatPrimary(
                     cost: data.weekTotal,
                     tokens: tokens.weekInput + tokens.weekOutput,
                     mode: settings.displayMode
                 ),
-                tokenSplit: settings.displayMode == .both
+                subtitle: settings.displayMode == .both
                     ? Formatters.tokenSplit(input: tokens.weekInput, output: tokens.weekOutput)
                     : nil,
-                alignment: .leading,
                 onTap: { toggleDetail(.week) }
             )
-
-            monthSectionColumn(
+            StatCard(
                 label: data.isCurrentWeek ? "This Month" : Formatters.monthName(data),
-                primary: Formatters.formatPrimary(
+                value: Formatters.formatPrimary(
                     cost: data.monthTotal,
                     tokens: tokens.monthInput + tokens.monthOutput,
                     mode: settings.displayMode
                 ),
-                tokenSplit: settings.displayMode == .both
+                subtitle: settings.displayMode == .both
                     ? Formatters.tokenSplit(input: tokens.monthInput, output: tokens.monthOutput)
                     : nil,
-                alignment: .trailing,
                 onTap: { toggleDetail(.month) }
             )
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-    }
-
-    private func monthSectionColumn(
-        label: String,
-        primary: String,
-        tokenSplit: String?,
-        alignment: HorizontalAlignment,
-        onTap: @escaping () -> Void
-    ) -> some View {
-        Button(action: onTap) {
-            VStack(alignment: alignment, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(label).font(.caption).foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                Text(primary)
-                    .font(.system(.body, design: .rounded).bold())
-                    .foregroundStyle(.primary)
-                if let tokenSplit {
-                    Text(tokenSplit).font(.system(size: 10)).foregroundStyle(.tertiary)
-                }
-            }
-            .frame(
-                maxWidth: .infinity,
-                alignment: alignment == .leading ? .leading : .trailing
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointingHandCursor()
+        .padding(.vertical, 12)
     }
 
     // MARK: - Detail wiring
