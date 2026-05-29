@@ -39,6 +39,13 @@ enum ScreenshotGenerator {
 
         let registry = ExtensionRegistry()
         registry.register(UsageExtension(service: service, settings: settings))
+        let prExt = GitHubPRExtension(usageService: service)
+        prExt.prs = mockPRs()
+        prExt.lastRefresh = Date()
+        registry.register(prExt)
+        if let activeId = ProcessInfo.processInfo.environment["BURN_ACTIVE_TAB"] {
+            registry.activeTabId = activeId
+        }
         let view = MenuBarView(service: service, settings: settings, registry: registry)
             .background(Color(nsColor: .windowBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -65,6 +72,31 @@ enum ScreenshotGenerator {
             fputs("Failed to write: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    private static func mockPRs() -> [GitHubPR] {
+        let now = Date()
+        let cal = Calendar.current
+        return [
+            GitHubPR(
+                url: "https://github.com/maferland/burn/pull/3",
+                title: "GitHub PR extension with stat cards",
+                createdAt: cal.date(byAdding: .minute, value: -12, to: now)!,
+                repository: .init(nameWithOwner: "maferland/burn")
+            ),
+            GitHubPR(
+                url: "https://github.com/maferland/burn/pull/2",
+                title: "Extension architecture: BurnExtension protocol + registry",
+                createdAt: cal.date(byAdding: .hour, value: -3, to: now)!,
+                repository: .init(nameWithOwner: "maferland/burn")
+            ),
+            GitHubPR(
+                url: "https://github.com/carta/claude-marketplace/pull/4966",
+                title: "verdict: persona-scoped MCP token cache",
+                createdAt: cal.date(byAdding: .hour, value: -5, to: now)!,
+                repository: .init(nameWithOwner: "carta/claude-marketplace")
+            ),
+        ]
     }
 
     private static func mockDays() -> [DailyUsage] {
