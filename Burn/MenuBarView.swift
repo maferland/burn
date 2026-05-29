@@ -19,20 +19,17 @@ struct MenuBarView: View {
                 tabBar(enabled: enabled)
                 Divider()
             }
-            activeTabContent(enabled: enabled)
-                .environment(\.burnTabBarVisible, showsTabBar)
-                .id(sessionID)
+            if showSettings {
+                settingsPanel(showsTabBar: showsTabBar)
+            } else {
+                activeTabContent(enabled: enabled)
+                    .environment(\.burnTabBarVisible, showsTabBar)
+                    .id("\(sessionID)-\(registry.activeTabId ?? "")")
+            }
 
             Divider()
             footerSection
             Divider()
-
-            VStack(spacing: 0) {
-                settingsSection
-                Divider()
-            }
-            .frame(maxHeight: showSettings ? .infinity : 0)
-            .clipped()
 
             supportSection
             Divider()
@@ -64,13 +61,21 @@ struct MenuBarView: View {
     private func tabBar(enabled: [any BurnExtension]) -> some View {
         HStack(spacing: 6) {
             ForEach(enabled, id: \.id) { ext in
-                tabChip(ext: ext, isActive: ext.id == (registry.activeTabId ?? enabled.first?.id))
+                tabChip(ext: ext, isActive: !showSettings && ext.id == (registry.activeTabId ?? enabled.first?.id))
             }
             Spacer()
             Button {
                 showSettings.toggle()
             } label: {
-                Image(systemName: "gear").foregroundStyle(.secondary)
+                Image(systemName: "gear")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        showSettings ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear),
+                        in: Capsule()
+                    )
+                    .foregroundStyle(showSettings ? .primary : .secondary)
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .pointingHandCursor()
@@ -82,6 +87,7 @@ struct MenuBarView: View {
     private func tabChip(ext: any BurnExtension, isActive: Bool) -> some View {
         Button {
             registry.activeTabId = ext.id
+            showSettings = false
         } label: {
             Text(ext.displayName)
                 .font(.caption.weight(.semibold))
@@ -148,6 +154,31 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    private func settingsPanel(showsTabBar: Bool) -> some View {
+        VStack(spacing: 0) {
+            if !showsTabBar {
+                HStack {
+                    Image(systemName: "gear")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                    Text("Settings").font(.headline)
+                    Spacer()
+                    Button {
+                        showSettings = false
+                    } label: {
+                        Image(systemName: "xmark").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .pointingHandCursor()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                Divider()
+            }
+            settingsSection
+        }
     }
 
     private var settingsSection: some View {
