@@ -37,7 +37,9 @@ enum ScreenshotGenerator {
             )
         )
 
-        let view = MenuBarView(service: service, settings: settings)
+        let registry = ExtensionRegistry()
+        registry.register(UsageExtension(service: service, settings: settings))
+        let view = MenuBarView(service: service, settings: settings, registry: registry)
             .background(Color(nsColor: .windowBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(4)
