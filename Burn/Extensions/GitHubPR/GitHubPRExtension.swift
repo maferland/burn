@@ -28,10 +28,11 @@ final class GitHubPRExtension: BurnExtension {
         isLoading = true
         errorMessage = nil
         let owners = self.owners
+        let monthStart = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let fetched = try await GitHubPRService.fetchPRsOpened(on: Date(), owners: owners)
+                let fetched = try await GitHubPRService.fetchPRsOpened(since: monthStart, owners: owners)
                 self.prs = fetched.sorted(by: { $0.createdAt > $1.createdAt })
                 self.lastRefresh = Date()
                 self.isLoading = false
@@ -46,12 +47,40 @@ final class GitHubPRExtension: BurnExtension {
         AnyView(GitHubPRSettingsView(ext: self))
     }
 
-    var todayCount: Int { prs.count }
-
-    var avgCostPerPR: Double? {
-        guard todayCount > 0 else { return nil }
-        return usageService.usageData.todayCost / Double(todayCount)
+    var todayPRs: [GitHubPR] {
+        let cal = Calendar.current
+        let today = Date()
+        return prs.filter { cal.isDate($0.createdAt, inSameDayAs: today) }
     }
+
+    var weekPRs: [GitHubPR] {
+        let start = usageService.usageData.weekStart
+        let end = usageService.usageData.weekEnd
+        guard start != end else { return todayPRs }
+        return prs.filter { $0.createdAt >= start && $0.createdAt <= end }
+    }
+
+    var monthPRs: [GitHubPR] {
+        let cal = Calendar.current
+        let now = Date()
+        let monthComps = cal.dateComponents([.year, .month], from: now)
+        return prs.filter {
+            let prComps = cal.dateComponents([.year, .month], from: $0.createdAt)
+            return prComps.year == monthComps.year && prComps.month == monthComps.month
+        }
+    }
+
+    var todayCount: Int { todayPRs.count }
+    var weekCount: Int { weekPRs.count }
+    var monthCount: Int { monthPRs.count }
+
+    private func avgCost(total: Double, count: Int) -> Double? {
+        count > 0 ? total / Double(count) : nil
+    }
+
+    var avgCostPerPR: Double? { avgCost(total: usageService.usageData.todayCost, count: todayCount) }
+    var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: weekCount) }
+    var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: monthCount) }
 
     // Unicode glyphs render in MenuBarExtra labels; SF Symbols interpolated into Text do not.
     func menuBarSegment() -> Text? {
@@ -66,11 +95,14 @@ final class GitHubPRExtension: BurnExtension {
     }
 }
 
+enum PRPeriod { case today, week, month }
+
 struct GitHubPRTabView: View {
     let ext: GitHubPRExtension
 
     @Environment(\.openBurnSettings) private var openSettings
     @Environment(\.burnTabBarVisible) private var tabBarVisible
+    @State private var selectedPeriod: PRPeriod = .today
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,28 +150,56 @@ struct GitHubPRTabView: View {
 
     private var cards: some View {
         HStack(spacing: 8) {
-            StatCard(label: "Today's PRs", value: "\(ext.todayCount)")
-            StatCard(label: "Avg $ / PR", value: ext.avgCostPerPR.map { Formatters.cost($0) } ?? "—")
+            periodCard(.today, label: "Today", count: ext.todayCount, avg: ext.avgCostPerPR)
+            periodCard(.week, label: "Week", count: ext.weekCount, avg: ext.avgCostPerPRWeek)
+            periodCard(.month, label: "Month", count: ext.monthCount, avg: ext.avgCostPerPRMonth)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
 
+    private func periodCard(_ period: PRPeriod, label: String, count: Int, avg: Double?) -> some View {
+        StatCard(
+            label: label,
+            value: "\(count)",
+            subtitle: avg.map { "\(String(format: "$%.0f", $0)) / PR" },
+            isSelected: selectedPeriod == period,
+            onTap: { selectedPeriod = period }
+        )
+    }
+
+    private var filteredPRs: [GitHubPR] {
+        switch selectedPeriod {
+        case .today: return ext.todayPRs
+        case .week:  return ext.weekPRs
+        case .month: return ext.monthPRs
+        }
+    }
+
+    private var emptyPeriodLabel: String {
+        switch selectedPeriod {
+        case .today: return "today"
+        case .week:  return "this week"
+        case .month: return "this month"
+        }
+    }
+
     @ViewBuilder
     private var prList: some View {
-        if ext.prs.isEmpty {
+        let prs = filteredPRs
+        if prs.isEmpty {
             Text(emptyMessage)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 16)
         } else {
-            let costNote = ext.avgCostPerPR.map { Formatters.cost($0) }
+            let costNote = activeAvg.map { Formatters.cost($0) }
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(ext.prs.enumerated()), id: \.element.id) { idx, pr in
+                    ForEach(Array(prs.enumerated()), id: \.element.id) { idx, pr in
                         PRRow(pr: pr, costNote: costNote)
-                        if idx < ext.prs.count - 1 {
+                        if idx < prs.count - 1 {
                             Divider()
                         }
                     }
@@ -150,11 +210,19 @@ struct GitHubPRTabView: View {
         }
     }
 
+    private var activeAvg: Double? {
+        switch selectedPeriod {
+        case .today: return ext.avgCostPerPR
+        case .week:  return ext.avgCostPerPRWeek
+        case .month: return ext.avgCostPerPRMonth
+        }
+    }
+
     private var emptyMessage: String {
         if ext.lastRefresh == nil && ext.isLoading {
             return "Loading…"
         }
-        return "No PRs opened today"
+        return "No PRs opened \(emptyPeriodLabel)"
     }
 }
 

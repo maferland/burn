@@ -6,6 +6,8 @@ final class ExtensionRegistry {
     static let enabledIdsKey = "extensions.enabledIds"
     static let orderedIdsKey = "extensions.orderedIds"
     static let seenIdsKey = "extensions.seenIds"
+    // Core extensions can't be disabled and aren't shown in the Extensions settings list.
+    static let coreIds: Set<String> = ["usage"]
 
     private(set) var extensions: [any BurnExtension] = []
 
@@ -38,7 +40,9 @@ final class ExtensionRegistry {
             orderedIds.append(ext.id)
         }
 
-        if !seenIds.contains(ext.id) {
+        if Self.coreIds.contains(ext.id) {
+            enabledIds.insert(ext.id)
+        } else if !seenIds.contains(ext.id) {
             seenIds.insert(ext.id)
             UserDefaults.standard.set(Array(seenIds), forKey: Self.seenIdsKey)
             enabledIds.insert(ext.id)
@@ -47,6 +51,10 @@ final class ExtensionRegistry {
         if activeTabId == nil, enabledIds.contains(ext.id) {
             activeTabId = ext.id
         }
+    }
+
+    var configurableExtensions: [any BurnExtension] {
+        orderedExtensions.filter { !Self.coreIds.contains($0.id) }
     }
 
     var orderedExtensions: [any BurnExtension] {
@@ -60,6 +68,7 @@ final class ExtensionRegistry {
     func isEnabled(_ id: String) -> Bool { enabledIds.contains(id) }
 
     func setEnabled(_ id: String, _ enabled: Bool) {
+        if Self.coreIds.contains(id) { return }
         if enabled {
             enabledIds.insert(id)
             if activeTabId == nil {

@@ -34,13 +34,11 @@ enum GitHubPRError: LocalizedError {
 }
 
 enum GitHubPRService {
-    /// Returns PRs the authenticated user opened that fall on `date` in the user's local timezone.
-    // GitHub search's `--created=` filter is UTC-only, so a single-date query misses PRs created late local-day after UTC rollover. Query the 36h window covering yesterday-and-today UTC, then filter to the requested local day.
-    static func fetchPRsOpened(on date: Date, owners: [String] = []) async throws -> [GitHubPR] {
+    // GitHub search's `--created=` filter is UTC-only. Query one day earlier than `since` and let the caller filter by local timezone.
+    static func fetchPRsOpened(since: Date, owners: [String] = []) async throws -> [GitHubPR] {
         let cal = Calendar.current
-        let startOfLocalDay = cal.startOfDay(for: date)
-        let yesterdayUTC = cal.date(byAdding: .day, value: -1, to: startOfLocalDay)!
-        let queryStart = isoDayFormatter.string(from: yesterdayUTC)
+        let queryStartDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!
+        let queryStart = isoDayFormatter.string(from: queryStartDate)
         var args = [
             "search", "prs",
             "--author=@me",
@@ -57,13 +55,12 @@ enum GitHubPRService {
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let all: [GitHubPR]
         do {
-            all = try decoder.decode([GitHubPR].self, from: data)
+            return try decoder.decode([GitHubPR].self, from: data)
+                .filter { $0.createdAt >= since }
         } catch {
             throw GitHubPRError.decodeFailed(String(describing: error))
         }
-        return all.filter { cal.isDate($0.createdAt, inSameDayAs: date) }
     }
 
     // MARK: - Process plumbing

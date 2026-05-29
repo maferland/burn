@@ -18,7 +18,6 @@ struct UsageDashboardView: View {
     @State private var weekOffset = 0
     @State private var selectedDayId: String?
     @State private var openScope: DetailScope? = UsageDashboardView.initialOpenScope()
-    @State private var hasAppearedOnce = false
 
     private static func initialOpenScope() -> DetailScope? {
         switch ProcessInfo.processInfo.environment["BURN_DETAIL"] {
@@ -60,30 +59,10 @@ struct UsageDashboardView: View {
             }
         }
         .clipped()
-        .onAppear {
-            if hasAppearedOnce {
-                resetToDefault()
-            } else {
-                hasAppearedOnce = true
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
-            guard hasAppearedOnce, let window = note.object as? NSWindow else { return }
-            let className = String(describing: type(of: window))
-            if className.contains("MenuBarExtra") || className.contains("Popover") || className.contains("StatusBar") {
-                resetToDefault()
-            }
-        }
     }
 
     private func slideTransition(_ edge: Edge) -> AnyTransition {
         .asymmetric(insertion: .move(edge: edge), removal: .move(edge: edge))
-    }
-
-    private func resetToDefault() {
-        openScope = nil
-        weekOffset = 0
-        selectedDayId = nil
     }
 
     private var mainContent: some View {
