@@ -11,6 +11,7 @@ final class GitHubPRExtension: BurnExtension {
     let usageService: UsageService
     var prs: [GitHubPR] = []
     var errorMessage: String?
+    var truncated = false
     var isLoading = false
     var lastRefresh: Date?
 
@@ -29,11 +30,15 @@ final class GitHubPRExtension: BurnExtension {
         errorMessage = nil
         let owners = self.owners
         let monthStart = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
+        // The rolling 7-day week window can reach into the previous month, so fetch from
+        // whichever start is earlier — otherwise weekPRs undercounts near the start of a month.
+        let fetchStart = min(monthStart, usageService.usageData.weekStart)
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let fetched = try await GitHubPRService.fetchPRsOpened(since: monthStart, owners: owners)
-                self.prs = fetched.sorted(by: { $0.createdAt > $1.createdAt })
+                let fetched = try await GitHubPRService.fetchPRsOpened(since: fetchStart, owners: owners)
+                self.prs = fetched.prs.sorted(by: { $0.createdAt > $1.createdAt })
+                self.truncated = fetched.truncated
                 self.lastRefresh = Date()
                 self.isLoading = false
             } catch {
@@ -54,10 +59,11 @@ final class GitHubPRExtension: BurnExtension {
     }
 
     var weekPRs: [GitHubPR] {
-        let start = usageService.usageData.weekStart
-        let end = usageService.usageData.weekEnd
-        guard start != end else { return todayPRs }
-        return prs.filter { $0.createdAt >= start && $0.createdAt <= end }
+        let data = usageService.usageData
+        guard data.weekStart != data.weekEnd else { return todayPRs }
+        // Lower-bound by weekStart's calendar day to match the whole-day cost window; no upper bound needed (no future PRs).
+        let start = Calendar.current.startOfDay(for: data.weekStart)
+        return prs.filter { $0.createdAt >= start }
     }
 
     var monthPRs: [GitHubPR] {
@@ -113,6 +119,9 @@ struct GitHubPRTabView: View {
             if let error = ext.errorMessage {
                 errorBanner(error)
             }
+            if ext.truncated {
+                warningBanner("Showing first \(GitHubPRService.fetchLimit) PRs — counts may be capped.")
+            }
             cards
             Divider()
             prList
@@ -143,6 +152,15 @@ struct GitHubPRTabView: View {
         Label(error, systemImage: "exclamationmark.triangle")
             .font(.caption2)
             .foregroundStyle(.red)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func warningBanner(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.circle")
+            .font(.caption2)
+            .foregroundStyle(.orange)
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
