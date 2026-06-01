@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 struct MenuBarView: View {
     let service: UsageService
     let settings: SettingsStore
