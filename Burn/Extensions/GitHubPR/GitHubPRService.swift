@@ -33,9 +33,18 @@ enum GitHubPRError: LocalizedError {
     }
 }
 
+struct GitHubPRFetchResult {
+    let prs: [GitHubPR]
+    // True when gh returned exactly the request limit, meaning older PRs may have been dropped.
+    let truncated: Bool
+}
+
 enum GitHubPRService {
+    // GitHub's search API caps results at 1000; request the max so a busy month isn't silently clipped.
+    static let fetchLimit = 1000
+
     // GitHub search's `--created=` filter is UTC-only. Query one day earlier than `since` and let the caller filter by local timezone.
-    static func fetchPRsOpened(since: Date, owners: [String] = []) async throws -> [GitHubPR] {
+    static func fetchPRsOpened(since: Date, owners: [String] = []) async throws -> GitHubPRFetchResult {
         let cal = Calendar.current
         let queryStartDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!
         let queryStart = isoDayFormatter.string(from: queryStartDate)
@@ -44,7 +53,7 @@ enum GitHubPRService {
             "--author=@me",
             "--created=>=\(queryStart)",
             "--json", "url,title,createdAt,repository",
-            "--limit", "200",
+            "--limit", "\(fetchLimit)",
         ]
         for owner in owners {
             args.append("--owner=\(owner)")
@@ -56,8 +65,11 @@ enum GitHubPRService {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         do {
-            return try decoder.decode([GitHubPR].self, from: data)
-                .filter { $0.createdAt >= since }
+            let decoded = try decoder.decode([GitHubPR].self, from: data)
+            return GitHubPRFetchResult(
+                prs: decoded.filter { $0.createdAt >= since },
+                truncated: decoded.count >= fetchLimit
+            )
         } catch {
             throw GitHubPRError.decodeFailed(String(describing: error))
         }
