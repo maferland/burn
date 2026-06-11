@@ -5,8 +5,12 @@ struct GitHubPR: Decodable, Identifiable, Hashable {
     let title: String
     let createdAt: Date
     let repository: Repository
+    let state: String      // "OPEN", "CLOSED", "MERGED"
+    let closedAt: Date?    // set when merged or closed
 
     var id: String { url }
+    var isMerged: Bool { state.uppercased() == "MERGED" }
+    var mergedAt: Date? { isMerged ? closedAt : nil }
 
     struct Repository: Decodable, Hashable {
         let nameWithOwner: String
@@ -43,8 +47,9 @@ enum GitHubPRService {
     // GitHub's search API caps results at 1000; request the max so a busy month isn't silently clipped.
     static let fetchLimit = 1000
 
-    // GitHub search's `--created=` filter is UTC-only. Query one day earlier than `since` and let the caller filter by local timezone.
-    static func fetchPRsOpened(since: Date, owners: [String] = []) async throws -> GitHubPRFetchResult {
+    // Single fetch for all PRs by creation date; open vs merged is split client-side via mergedAt.
+    // GitHub search's `--created=` filter is UTC-only — query one day earlier and filter locally.
+    static func fetchAll(since: Date, owners: [String] = []) async throws -> GitHubPRFetchResult {
         let cal = Calendar.current
         let queryStartDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!
         let queryStart = isoDayFormatter.string(from: queryStartDate)
@@ -52,12 +57,18 @@ enum GitHubPRService {
             "search", "prs",
             "--author=@me",
             "--created=>=\(queryStart)",
-            "--json", "url,title,createdAt,repository",
+            "--json", "url,title,createdAt,repository,state,closedAt",
             "--limit", "\(fetchLimit)",
         ]
-        for owner in owners {
-            args.append("--owner=\(owner)")
-        }
+        for owner in owners { args.append("--owner=\(owner)") }
+        let decoded = try await runAndDecode(args: args)
+        return GitHubPRFetchResult(
+            prs: decoded.filter { $0.createdAt >= since },
+            truncated: decoded.count >= fetchLimit
+        )
+    }
+
+    private static func runAndDecode(args: [String]) async throws -> [GitHubPR] {
         let output = try await runGH(args: args)
         guard let data = output.data(using: .utf8) else {
             throw GitHubPRError.decodeFailed("non-utf8 output")
@@ -65,11 +76,7 @@ enum GitHubPRService {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         do {
-            let decoded = try decoder.decode([GitHubPR].self, from: data)
-            return GitHubPRFetchResult(
-                prs: decoded.filter { $0.createdAt >= since },
-                truncated: decoded.count >= fetchLimit
-            )
+            return try decoder.decode([GitHubPR].self, from: data)
         } catch {
             throw GitHubPRError.decodeFailed(String(describing: error))
         }
