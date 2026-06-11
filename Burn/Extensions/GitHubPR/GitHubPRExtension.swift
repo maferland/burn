@@ -4,9 +4,10 @@ import SwiftUI
 @Observable
 @MainActor
 final class GitHubPRExtension: BurnExtension {
+    static let ownersKey = "github-pr.owners"
+
     let id = "github-pr"
     let displayName = "GitHub"
-    static let ownersKey = "github-pr.owners"
 
     let usageService: UsageService
     var prs: [GitHubPR] = []
@@ -36,8 +37,8 @@ final class GitHubPRExtension: BurnExtension {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let fetched = try await GitHubPRService.fetchPRsOpened(since: fetchStart, owners: owners)
-                self.prs = fetched.prs.sorted(by: { $0.createdAt > $1.createdAt })
+                let fetched = try await GitHubPRService.fetchAll(since: fetchStart, owners: owners)
+                self.prs = fetched.prs.sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
                 self.truncated = fetched.truncated
                 self.lastRefresh = Date()
                 self.isLoading = false
@@ -52,18 +53,22 @@ final class GitHubPRExtension: BurnExtension {
         AnyView(GitHubPRSettingsView(ext: self))
     }
 
+    // For open PRs: anchor on createdAt. For merged: anchor on mergedAt.
+    private func effectiveDate(_ pr: GitHubPR) -> Date {
+        pr.mergedAt ?? pr.createdAt
+    }
+
     var todayPRs: [GitHubPR] {
         let cal = Calendar.current
         let today = Date()
-        return prs.filter { cal.isDate($0.createdAt, inSameDayAs: today) }
+        return prs.filter { cal.isDate(effectiveDate($0), inSameDayAs: today) }
     }
 
     var weekPRs: [GitHubPR] {
         let data = usageService.usageData
         guard data.weekStart != data.weekEnd else { return todayPRs }
-        // Lower-bound by weekStart's calendar day to match the whole-day cost window; no upper bound needed (no future PRs).
         let start = Calendar.current.startOfDay(for: data.weekStart)
-        return prs.filter { $0.createdAt >= start }
+        return prs.filter { effectiveDate($0) >= start }
     }
 
     var monthPRs: [GitHubPR] {
@@ -71,29 +76,44 @@ final class GitHubPRExtension: BurnExtension {
         let now = Date()
         let monthComps = cal.dateComponents([.year, .month], from: now)
         return prs.filter {
-            let prComps = cal.dateComponents([.year, .month], from: $0.createdAt)
+            let prComps = cal.dateComponents([.year, .month], from: effectiveDate($0))
             return prComps.year == monthComps.year && prComps.month == monthComps.month
         }
     }
+
+    private func openPRs(in list: [GitHubPR]) -> [GitHubPR] { list.filter { !$0.isMerged } }
+    private func mergedPRs(in list: [GitHubPR]) -> [GitHubPR] { list.filter { $0.isMerged } }
 
     var todayCount: Int { todayPRs.count }
     var weekCount: Int { weekPRs.count }
     var monthCount: Int { monthPRs.count }
 
+    var todayOpenCount: Int   { openPRs(in: todayPRs).count }
+    var weekOpenCount: Int    { openPRs(in: weekPRs).count }
+    var monthOpenCount: Int   { openPRs(in: monthPRs).count }
+
+    var todayMergedCount: Int { mergedPRs(in: todayPRs).count }
+    var weekMergedCount: Int  { mergedPRs(in: weekPRs).count }
+    var monthMergedCount: Int { mergedPRs(in: monthPRs).count }
+
     private func avgCost(total: Double, count: Int) -> Double? {
         count > 0 ? total / Double(count) : nil
     }
 
-    var avgCostPerPR: Double? { avgCost(total: usageService.usageData.todayCost, count: todayCount) }
-    var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: weekCount) }
-    var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: monthCount) }
+    // Cost per PR divides by merged count only — open PRs haven't shipped yet.
+    var avgCostPerPR: Double? { avgCost(total: usageService.usageData.todayCost, count: todayMergedCount) }
+    var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: mergedPRs(in: weekPRs).count) }
+    var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: mergedPRs(in: monthPRs).count) }
 
-    // Unicode glyphs render in MenuBarExtra labels; SF Symbols interpolated into Text do not.
+    // ○ = open (pending circle), ⌥ = merged (two branches converging).
+    // Unicode glyphs required; SF Symbols don't render in MenuBarExtra labels.
     func menuBarSegment() -> Text? {
-        if todayCount > 0, let avg = avgCostPerPR {
-            return Text("⎇ \(todayCount) · \(String(format: "$%.0f", avg))")
+        let open = todayOpenCount
+        let merged = todayMergedCount
+        if merged > 0, let avg = avgCostPerPR {
+            return Text("○ \(open)  ⌥ \(merged) \(String(format: "$%.0f", avg))")
         }
-        return Text("⎇ \(todayCount)")
+        return Text("○ \(open)  ⌥ \(merged)")
     }
 
     func popoverTab() -> AnyView {
@@ -168,18 +188,18 @@ struct GitHubPRTabView: View {
 
     private var cards: some View {
         HStack(spacing: 8) {
-            periodCard(.today, label: "Today", count: ext.todayCount, avg: ext.avgCostPerPR)
-            periodCard(.week, label: "Week", count: ext.weekCount, avg: ext.avgCostPerPRWeek)
-            periodCard(.month, label: "Month", count: ext.monthCount, avg: ext.avgCostPerPRMonth)
+            periodCard(.today, label: "Today", open: ext.todayOpenCount, merged: ext.todayMergedCount, avg: ext.avgCostPerPR)
+            periodCard(.week,  label: "Week",  open: ext.weekOpenCount,  merged: ext.weekMergedCount,  avg: ext.avgCostPerPRWeek)
+            periodCard(.month, label: "Month", open: ext.monthOpenCount, merged: ext.monthMergedCount, avg: ext.avgCostPerPRMonth)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
 
-    private func periodCard(_ period: PRPeriod, label: String, count: Int, avg: Double?) -> some View {
+    private func periodCard(_ period: PRPeriod, label: String, open: Int, merged: Int, avg: Double?) -> some View {
         StatCard(
             label: label,
-            value: "\(count)",
+            value: "○\(open)  ⌥\(merged)",
             subtitle: avg.map { "\(String(format: "$%.0f", $0)) / PR" },
             isSelected: selectedPeriod == period,
             onTap: { selectedPeriod = period }
@@ -240,7 +260,7 @@ struct GitHubPRTabView: View {
         if ext.lastRefresh == nil && ext.isLoading {
             return "Loading…"
         }
-        return "No PRs opened \(emptyPeriodLabel)"
+        return "No PRs \(emptyPeriodLabel)"
     }
 }
 
@@ -255,6 +275,9 @@ private struct PRRow: View {
             }
         } label: {
             HStack(spacing: 8) {
+                Circle()
+                    .fill(pr.isMerged ? Color.purple : Color.green)
+                    .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title)
                         .font(.caption)
