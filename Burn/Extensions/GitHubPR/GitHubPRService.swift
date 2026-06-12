@@ -9,7 +9,8 @@ struct GitHubPR: Decodable, Identifiable, Hashable {
     let closedAt: Date?    // set when merged or closed
 
     var id: String { url }
-    var isMerged: Bool { state.uppercased() == "MERGED" }
+    var isMerged: Bool { state.lowercased() == "merged" }
+    // GitHub returns "0001-01-01T00:00:00Z" (zero date) for closedAt on open PRs instead of null.
     var mergedAt: Date? { isMerged ? closedAt : nil }
 
     struct Repository: Decodable, Hashable {
@@ -47,8 +48,7 @@ enum GitHubPRService {
     // GitHub's search API caps results at 1000; request the max so a busy month isn't silently clipped.
     static let fetchLimit = 1000
 
-    // Single fetch for all PRs by creation date; open vs merged is split client-side via mergedAt.
-    // GitHub search's `--created=` filter is UTC-only — query one day earlier and filter locally.
+    // GitHub search's `--created=` filter is UTC-only; query one day earlier and filter locally.
     static func fetchAll(since: Date, owners: [String] = []) async throws -> GitHubPRFetchResult {
         let cal = Calendar.current
         let queryStartDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!
