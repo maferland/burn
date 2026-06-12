@@ -88,7 +88,7 @@ final class GitHubPRExtension: BurnExtension {
     var weekCount: Int { weekPRs.count }
     var monthCount: Int { monthPRs.count }
 
-    var todayOpenCount: Int   { openPRs(in: todayPRs).count }
+    var todayOpenCount: Int { openPRs(in: todayPRs).count }
     var weekOpenCount: Int    { openPRs(in: weekPRs).count }
     var monthOpenCount: Int   { openPRs(in: monthPRs).count }
 
@@ -200,7 +200,7 @@ struct GitHubPRTabView: View {
         StatCard(
             label: label,
             value: "○\(open)  ⌥\(merged)",
-            subtitle: avg.map { "\(String(format: "$%.0f", $0)) / PR" },
+            subtitle: avg.map { "\(String(format: "$%.0f", $0)) / PR" } ?? "— / PR",
             isSelected: selectedPeriod == period,
             onTap: { selectedPeriod = period }
         )
