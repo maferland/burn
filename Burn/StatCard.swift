@@ -51,6 +51,8 @@ struct StatCard: View {
             Text(value)
                 .font(.system(.title3, design: .rounded).bold())
                 .foregroundStyle(.primary)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
             if let subtitle {
                 Text(subtitle)
                     .font(.system(size: 10))
