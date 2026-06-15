@@ -38,7 +38,7 @@ cask "burn" do
   desc "Track Claude Code spending from the macOS menu bar"
   homepage "https://github.com/maferland/burn"
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   livecheck do
     url :url
