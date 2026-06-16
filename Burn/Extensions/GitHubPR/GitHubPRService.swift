@@ -48,23 +48,23 @@ enum GitHubPRService {
     // GitHub's search API caps results at 1000; request the max so a busy month isn't silently clipped.
     static let fetchLimit = 1000
 
-    // GitHub search's `--created=` filter is UTC-only; query one day earlier and filter locally.
+    // Two parallel queries so merged PRs are anchored on merged date, not created date.
+    // --created=>=since misses PRs opened before `since` that merged in-window.
     static func fetchAll(since: Date, owners: [String] = []) async throws -> GitHubPRFetchResult {
         let cal = Calendar.current
-        let queryStartDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!
-        let queryStart = isoDayFormatter.string(from: queryStartDate)
-        var args = [
-            "search", "prs",
-            "--author=@me",
-            "--created=>=\(queryStart)",
-            "--json", "url,title,createdAt,repository,state,closedAt",
-            "--limit", "\(fetchLimit)",
-        ]
-        for owner in owners { args.append("--owner=\(owner)") }
-        let decoded = try await runAndDecode(args: args)
+        let sinceStr = isoDayFormatter.string(from: cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!)
+        let json = ["--json", "url,title,createdAt,repository,state,closedAt", "--limit", "\(fetchLimit)"]
+
+        let ownerArgs  = owners.flatMap { ["--owner=\($0)"] }
+        let openArgs   = ["search", "prs", "--author=@me", "--state=open"] + json + ownerArgs
+        let mergedArgs = ["search", "prs", "--author=@me", "--merged", "--merged-at=>=\(sinceStr)"] + json + ownerArgs
+
+        async let openResult   = runAndDecode(args: openArgs)
+        async let mergedResult = runAndDecode(args: mergedArgs)
+        let (open, merged) = try await (openResult, mergedResult)
         return GitHubPRFetchResult(
-            prs: decoded.filter { $0.createdAt >= since },
-            truncated: decoded.count >= fetchLimit
+            prs: open + merged,
+            truncated: open.count >= fetchLimit || merged.count >= fetchLimit
         )
     }
 
