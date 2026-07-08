@@ -5,8 +5,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/maferland/claude-usage-kit",
       "state" : {
-        "revision" : "389d0f7263590e8c0d8e1100cae5f111682f5859",
-        "version" : "1.2.0"
+        "revision" : "d572bc9d493f9a5745d37aefcb3dacdb9aab6b71",
+        "version" : "1.3.0"
       }
     }
   ],
