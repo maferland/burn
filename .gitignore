@@ -6,3 +6,5 @@ DerivedData/
 *.dmg
 .DS_Store
 *.app
+tasks/
+.worktrees/
