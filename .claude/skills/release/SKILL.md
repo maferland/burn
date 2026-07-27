@@ -18,6 +18,15 @@ The `make release` target wraps `package_app.sh` with `doppler run --`, so Doppl
 
 Verify with `doppler secrets` from the repo root. The matching `Developer ID Application` cert must be in the login keychain (`security find-identity -p codesigning -v`).
 
+Prefer a keychain profile over `NOTARIZE_PASSWORD`, which `notarytool` would otherwise take on the command line where any local process can read it:
+
+```bash
+xcrun notarytool store-credentials burn-notary \
+    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password <app-specific-password>
+```
+
+Then set `NOTARY_PROFILE=burn-notary` (in Doppler or the environment) and `package_app.sh` uses it instead. Without it the script still works, with a warning.
+
 If any of these are missing, the script falls back to an unsigned build, which macOS Sonoma silently deletes from `/Applications/` on first launch. Don't ship an unsigned release.
 
 ## Steps

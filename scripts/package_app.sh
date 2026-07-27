@@ -114,16 +114,48 @@ rm -rf /tmp/Burn-dmg
 
 echo "Created ${DMG_NAME}"
 
-if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZE_PASSWORD:-}" ]; then
+# An attached image makes notarytool's preflight fail its disk-image test and then hang
+# indefinitely without ever registering a submission.
+detach_image() {
+    local image_path
+    image_path="$(cd "$(dirname "${1}")" && pwd)/$(basename "${1}")"
+    hdiutil info | awk -v img="${image_path}" '
+        /^image-path[[:space:]]*:/ {
+            path = $0
+            sub(/^image-path[[:space:]]*:[[:space:]]*/, "", path)
+            mine = (path == img)
+        }
+        mine && $1 ~ /^\/dev\/disk[0-9]+$/ { print $1 }
+    ' | while read -r device; do
+        echo "Detaching ${device} (${1} was left attached)"
+        hdiutil detach "${device}" -force >/dev/null 2>&1 || true
+    done
+}
+detach_image "${DMG_NAME}"
+
+# A keychain profile keeps the app-specific password out of the process list.
+# Create one with: xcrun notarytool store-credentials <name> --apple-id ... --team-id ... --password ...
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+
+if [ -n "${NOTARY_PROFILE}" ]; then
+    echo "Submitting for notarization (keychain profile ${NOTARY_PROFILE})..."
+    xcrun notarytool submit "${DMG_NAME}" --keychain-profile "${NOTARY_PROFILE}" --wait
+elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZE_PASSWORD:-}" ]; then
     echo "Submitting for notarization..."
+    echo "WARN: passing the password on the command line, where any local process can read it."
+    echo "      Set NOTARY_PROFILE to use a keychain profile instead."
     xcrun notarytool submit "${DMG_NAME}" \
         --apple-id "${APPLE_ID}" \
         --team-id "${APPLE_TEAM_ID}" \
         --password "${NOTARIZE_PASSWORD}" \
         --wait
-
-    echo "Stapling notarization ticket..."
-    xcrun stapler staple "${DMG_NAME}"
-
-    echo "Notarization complete"
+else
+    echo "WARN: no notarization credentials, skipping notarization"
+    exit 0
 fi
+
+echo "Stapling notarization ticket..."
+xcrun stapler staple "${DMG_NAME}"
+xcrun stapler validate "${DMG_NAME}"
+
+echo "Notarization complete"
