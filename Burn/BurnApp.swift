@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum BurnVersion {
-    static let current = "1.12.4"
+    static let current = "1.13.0"
 }
 
 @main
