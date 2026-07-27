@@ -39,7 +39,7 @@ enum ScreenshotGenerator {
 
         let registry = ExtensionRegistry()
         registry.register(UsageExtension(service: service, settings: settings))
-        let prExt = GitHubPRExtension(usageService: service)
+        let prExt = PullRequestExtension(usageService: service)
         prExt.prs = mockPRs()
         prExt.lastRefresh = Date()
         registry.register(prExt)
@@ -74,11 +74,11 @@ enum ScreenshotGenerator {
         }
     }
 
-    private static func mockPRs() -> [GitHubPR] {
+    private static func mockPRs() -> [PullRequest] {
         let now = Date()
         let cal = Calendar.current
         return [
-            GitHubPR(
+            PullRequest(
                 url: "https://github.com/maferland/burn/pull/3",
                 title: "GitHub PR extension with stat cards",
                 createdAt: cal.date(byAdding: .minute, value: -12, to: now)!,
@@ -86,7 +86,7 @@ enum ScreenshotGenerator {
                 state: "OPEN",
                 closedAt: nil
             ),
-            GitHubPR(
+            PullRequest(
                 url: "https://github.com/maferland/burn/pull/2",
                 title: "Extension architecture: BurnExtension protocol + registry",
                 createdAt: cal.date(byAdding: .hour, value: -3, to: now)!,
@@ -94,13 +94,23 @@ enum ScreenshotGenerator {
                 state: "MERGED",
                 closedAt: cal.date(byAdding: .hour, value: -2, to: now)!
             ),
-            GitHubPR(
-                url: "https://github.com/carta/claude-marketplace/pull/4966",
-                title: "verdict: persona-scoped MCP token cache",
+            PullRequest(
+                url: "https://github.com/acme/platform/pull/4966",
+                title: "Retry flaky artifact uploads",
                 createdAt: cal.date(byAdding: .hour, value: -5, to: now)!,
-                repository: .init(nameWithOwner: "carta/claude-marketplace"),
+                repository: .init(nameWithOwner: "acme/platform"),
                 state: "OPEN",
                 closedAt: nil
+            ),
+            PullRequest(
+                url: "https://git.example.com/acme/ledger/pulls/50",
+                title: "Round distribution amounts",
+                createdAt: cal.date(byAdding: .hour, value: -6, to: now)!,
+                repository: .init(nameWithOwner: "acme/ledger"),
+                state: "MERGED",
+                closedAt: cal.date(byAdding: .hour, value: -4, to: now)!,
+                provider: .forgejo,
+                hostLabel: "git.example.com"
             ),
         ]
     }
