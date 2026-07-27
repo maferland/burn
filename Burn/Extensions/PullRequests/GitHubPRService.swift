@@ -1,23 +1,5 @@
 import Foundation
 
-struct GitHubPR: Decodable, Identifiable, Hashable {
-    let url: String
-    let title: String
-    let createdAt: Date
-    let repository: Repository
-    let state: String      // "OPEN", "CLOSED", "MERGED"
-    let closedAt: Date?    // set when merged or closed
-
-    var id: String { url }
-    var isMerged: Bool { state.lowercased() == "merged" }
-    // GitHub returns "0001-01-01T00:00:00Z" (zero date) for closedAt on open PRs instead of null.
-    var mergedAt: Date? { isMerged ? closedAt : nil }
-
-    struct Repository: Decodable, Hashable {
-        let nameWithOwner: String
-    }
-}
-
 enum GitHubPRError: LocalizedError {
     case ghNotInstalled
     case ghNotAuthenticated(stderr: String)
@@ -38,19 +20,13 @@ enum GitHubPRError: LocalizedError {
     }
 }
 
-struct GitHubPRFetchResult {
-    let prs: [GitHubPR]
-    // True when gh returned exactly the request limit, meaning older PRs may have been dropped.
-    let truncated: Bool
-}
-
 enum GitHubPRService {
     // GitHub's search API caps results at 1000; request the max so a busy month isn't silently clipped.
     static let fetchLimit = 1000
 
     // Two parallel queries so merged PRs are anchored on merged date, not created date.
     // --created=>=since misses PRs opened before `since` that merged in-window.
-    static func fetchAll(since: Date, owners: [String] = []) async throws -> GitHubPRFetchResult {
+    static func fetchAll(since: Date, owners: [String] = []) async throws -> PRFetchResult {
         let cal = Calendar.current
         let sinceStr = isoDayFormatter.string(from: cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: since))!)
         let json = ["--json", "url,title,createdAt,repository,state,closedAt", "--limit", "\(fetchLimit)"]
@@ -62,13 +38,13 @@ enum GitHubPRService {
         async let openResult   = runAndDecode(args: openArgs)
         async let mergedResult = runAndDecode(args: mergedArgs)
         let (open, merged) = try await (openResult, mergedResult)
-        return GitHubPRFetchResult(
+        return PRFetchResult(
             prs: open + merged,
             truncated: open.count >= fetchLimit || merged.count >= fetchLimit
         )
     }
 
-    private static func runAndDecode(args: [String]) async throws -> [GitHubPR] {
+    private static func runAndDecode(args: [String]) async throws -> [PullRequest] {
         let output = try await runGH(args: args)
         guard let data = output.data(using: .utf8) else {
             throw GitHubPRError.decodeFailed("non-utf8 output")
@@ -76,7 +52,7 @@ enum GitHubPRService {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         do {
-            return try decoder.decode([GitHubPR].self, from: data)
+            return try decoder.decode([PullRequest].self, from: data)
         } catch {
             throw GitHubPRError.decodeFailed(String(describing: error))
         }

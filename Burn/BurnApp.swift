@@ -54,7 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
         r.register(UsageExtension(service: service, settings: settings))
-        r.register(GitHubPRExtension(usageService: service))
+        r.register(PullRequestExtension(usageService: service))
         return r
     }()
 

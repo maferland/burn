@@ -44,7 +44,7 @@ Run `Burn`. A flame icon appears in your menu bar with today's spend.
 
 Burn can show extra signals next to the cost. Extensions contribute a menu bar segment and a popover tab. They're toggled in **Settings → Extensions**.
 
-### GitHub
+### PRs
 
 Tracks pull requests you opened today, this week, and this month. The menu bar reads `$X · ⎇ N · $Y` where `Y` is `today's cost ÷ today's PR count` — your average cost per PR.
 
@@ -55,7 +55,9 @@ brew install gh
 gh auth login
 ```
 
-In **Settings → Extensions → GitHub → Orgs**, type a comma-separated list of repository owners to filter (e.g. `carta, maferland`). Leave it empty to count every PR you can see.
+In **Settings → Extensions → PRs → Orgs**, type a comma-separated list of repository owners to filter (e.g. `acme, maferland`). Leave it empty to count every PR you can see.
+
+Self-hosted Gitea and Forgejo count too, alongside GitHub. Fill in **Forgejo** with the host (e.g. `git.example.com`) and **Token** with an access token carrying the `read:issue` scope, generated at `https://<host>/user/settings/applications`. The token goes to your Keychain, never to disk in plain text. Rows from that host show it next to the repository name.
 
 ## Privacy
 

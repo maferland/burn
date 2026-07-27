@@ -3,14 +3,16 @@ import SwiftUI
 
 @Observable
 @MainActor
-final class GitHubPRExtension: BurnExtension {
+final class PullRequestExtension: BurnExtension {
     static let ownersKey = "github-pr.owners"
+    static let forgejoHostKey = "github-pr.forgejoHost"
+    static let forgejoTokenService = "burn.forgejo.token"
 
     let id = "github-pr"
-    let displayName = "GitHub"
+    let displayName = "PRs"
 
     let usageService: UsageService
-    var prs: [GitHubPR] = []
+    var prs: [PullRequest] = []
     var errorMessage: String?
     var truncated = false
     var isLoading = false
@@ -20,9 +22,35 @@ final class GitHubPRExtension: BurnExtension {
         didSet { UserDefaults.standard.set(owners, forKey: Self.ownersKey) }
     }
 
+    var forgejoHost: String {
+        didSet { UserDefaults.standard.set(forgejoHost, forKey: Self.forgejoHostKey) }
+    }
+
+    private var forgejoToken: String?
+
+    var hasForgejoToken: Bool { forgejoToken != nil }
+
     init(usageService: UsageService) {
         self.usageService = usageService
         self.owners = UserDefaults.standard.array(forKey: Self.ownersKey) as? [String] ?? []
+        self.forgejoHost = UserDefaults.standard.string(forKey: Self.forgejoHostKey) ?? ""
+        self.forgejoToken = KeychainStore.read(service: Self.forgejoTokenService)
+    }
+
+    func setForgejoToken(_ token: String) {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainStore.delete(service: Self.forgejoTokenService)
+            forgejoToken = nil
+        } else {
+            KeychainStore.write(trimmed, service: Self.forgejoTokenService)
+            forgejoToken = trimmed
+        }
+    }
+
+    private var forgejoConfig: ForgejoConfig? {
+        guard let forgejoToken else { return nil }
+        return ForgejoConfig(host: forgejoHost, token: forgejoToken)
     }
 
     func refresh() {
@@ -30,48 +58,68 @@ final class GitHubPRExtension: BurnExtension {
         isLoading = true
         errorMessage = nil
         let owners = self.owners
+        let config = forgejoConfig
         let monthStart = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
         // The rolling 7-day week window can reach into the previous month, so fetch from
         // whichever start is earlier — otherwise weekPRs undercounts near the start of a month.
         let fetchStart = min(monthStart, usageService.usageData.weekStart)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                let fetched = try await GitHubPRService.fetchAll(since: fetchStart, owners: owners)
-                self.prs = fetched.prs.sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
-                self.truncated = fetched.truncated
-                self.lastRefresh = Date()
-                self.isLoading = false
-            } catch {
-                self.errorMessage = error.localizedDescription
-                self.isLoading = false
+            async let github = Self.attempt { try await GitHubPRService.fetchAll(since: fetchStart, owners: owners) }
+            async let forgejo = Self.attempt {
+                guard let config else { return .empty }
+                return try await ForgejoPRService.fetchAll(config: config, since: fetchStart, owners: owners)
             }
+            let (githubResult, forgejoResult) = await (github, forgejo)
+            let results = [githubResult, forgejoResult]
+
+            // One host failing shouldn't blank out the other's PRs.
+            let fetched = results.compactMap(\.result)
+            self.prs = fetched.flatMap(\.prs).sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
+            self.truncated = fetched.contains(where: \.truncated)
+            let errors = results.compactMap(\.errorMessage)
+            self.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+            self.lastRefresh = Date()
+            self.isLoading = false
+        }
+    }
+
+    private struct Attempt {
+        let result: PRFetchResult?
+        let errorMessage: String?
+    }
+
+    private nonisolated static func attempt(_ work: () async throws -> PRFetchResult) async -> Attempt {
+        do {
+            return Attempt(result: try await work(), errorMessage: nil)
+        } catch {
+            return Attempt(result: nil, errorMessage: error.localizedDescription)
         }
     }
 
     func settingsView() -> AnyView? {
-        AnyView(GitHubPRSettingsView(ext: self))
+        AnyView(PullRequestSettingsView(ext: self))
     }
 
     // For open PRs: anchor on createdAt. For merged: anchor on mergedAt.
-    private func effectiveDate(_ pr: GitHubPR) -> Date {
+    private func effectiveDate(_ pr: PullRequest) -> Date {
         pr.mergedAt ?? pr.createdAt
     }
 
-    var todayPRs: [GitHubPR] {
+    var todayPRs: [PullRequest] {
         let cal = Calendar.current
         let today = Date()
         return prs.filter { cal.isDate(effectiveDate($0), inSameDayAs: today) }
     }
 
-    var weekPRs: [GitHubPR] {
+    var weekPRs: [PullRequest] {
         let data = usageService.usageData
         guard data.weekStart != data.weekEnd else { return todayPRs }
         let start = Calendar.current.startOfDay(for: data.weekStart)
         return prs.filter { effectiveDate($0) >= start }
     }
 
-    var monthPRs: [GitHubPR] {
+    var monthPRs: [PullRequest] {
         let cal = Calendar.current
         let now = Date()
         let monthComps = cal.dateComponents([.year, .month], from: now)
@@ -81,8 +129,8 @@ final class GitHubPRExtension: BurnExtension {
         }
     }
 
-    private func openPRs(in list: [GitHubPR]) -> [GitHubPR] { list.filter { !$0.isMerged } }
-    private func mergedPRs(in list: [GitHubPR]) -> [GitHubPR] { list.filter { $0.isMerged } }
+    private func openPRs(in list: [PullRequest]) -> [PullRequest] { list.filter { !$0.isMerged } }
+    private func mergedPRs(in list: [PullRequest]) -> [PullRequest] { list.filter { $0.isMerged } }
 
     var todayCount: Int { todayPRs.count }
     var weekCount: Int { weekPRs.count }
@@ -117,14 +165,14 @@ final class GitHubPRExtension: BurnExtension {
     }
 
     func popoverTab() -> AnyView {
-        AnyView(GitHubPRTabView(ext: self))
+        AnyView(PullRequestTabView(ext: self))
     }
 }
 
 enum PRPeriod { case today, week, month }
 
-struct GitHubPRTabView: View {
-    let ext: GitHubPRExtension
+struct PullRequestTabView: View {
+    let ext: PullRequestExtension
 
     @Environment(\.openBurnSettings) private var openSettings
     @Environment(\.burnTabBarVisible) private var tabBarVisible
@@ -140,7 +188,7 @@ struct GitHubPRTabView: View {
                 errorBanner(error)
             }
             if ext.truncated {
-                warningBanner("Showing first \(GitHubPRService.fetchLimit) PRs — counts may be capped.")
+                warningBanner("Hit a host's result cap — counts may be capped.")
             }
             cards
             Divider()
@@ -154,7 +202,7 @@ struct GitHubPRTabView: View {
             Image(systemName: "arrow.triangle.branch")
                 .font(.body)
                 .foregroundStyle(.secondary)
-            Text("GitHub").font(.headline)
+            Text("PRs").font(.headline)
             Spacer()
             Button {
                 openSettings()
@@ -206,7 +254,7 @@ struct GitHubPRTabView: View {
         )
     }
 
-    private var filteredPRs: [GitHubPR] {
+    private var filteredPRs: [PullRequest] {
         switch selectedPeriod {
         case .today: return ext.todayPRs
         case .week:  return ext.weekPRs
@@ -265,7 +313,7 @@ struct GitHubPRTabView: View {
 }
 
 private struct PRRow: View {
-    let pr: GitHubPR
+    let pr: PullRequest
     let costNote: String?
 
     var body: some View {
@@ -286,6 +334,10 @@ private struct PRRow: View {
                     HStack(spacing: 6) {
                         Text(pr.repository.nameWithOwner)
                             .lineLimit(1)
+                        if let hostLabel = pr.hostLabel {
+                            Text("· \(hostLabel)")
+                                .lineLimit(1)
+                        }
                         if let costNote {
                             Text("· \(costNote)")
                                 .foregroundStyle(.quaternary)
@@ -308,35 +360,73 @@ private struct PRRow: View {
     }
 }
 
-private struct GitHubPRSettingsView: View {
-    let ext: GitHubPRExtension
+private struct PullRequestSettingsView: View {
+    let ext: PullRequestExtension
     @State private var input: String = ""
+    @State private var hostInput: String = ""
+    @State private var tokenInput: String = ""
     @FocusState private var focused: Bool
+    @FocusState private var hostFocused: Bool
 
     var body: some View {
-        HStack {
-            Text("Orgs").font(.caption)
-            Spacer()
-            TextField("all", text: $input)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption2)
-                .frame(width: 130)
-                .focused($focused)
-                .onAppear { input = ext.owners.joined(separator: ", ") }
-                .onSubmit(commit)
-                .onChange(of: focused) { _, isFocused in
-                    if !isFocused { commit() }
-                }
+        VStack(spacing: 6) {
+            field(label: "Orgs") {
+                TextField("all", text: $input)
+                    .focused($focused)
+                    .onAppear { input = ext.owners.joined(separator: ", ") }
+                    .onSubmit(commitOwners)
+                    .onChange(of: focused) { _, isFocused in
+                        if !isFocused { commitOwners() }
+                    }
+            }
+            field(label: "Forgejo") {
+                TextField("git.example.com", text: $hostInput)
+                    .focused($hostFocused)
+                    .onAppear { hostInput = ext.forgejoHost }
+                    .onSubmit(commitHost)
+                    .onChange(of: hostFocused) { _, isFocused in
+                        if !isFocused { commitHost() }
+                    }
+            }
+            field(label: "Token") {
+                SecureField(ext.hasForgejoToken ? "stored" : "read:issue token", text: $tokenInput)
+                    .onSubmit(commitToken)
+            }
         }
     }
 
-    private func commit() {
+    private func field<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack {
+            Text(label).font(.caption)
+            Spacer()
+            content()
+                .textFieldStyle(.roundedBorder)
+                .font(.caption2)
+                .frame(width: 130)
+        }
+    }
+
+    private func commitOwners() {
         let parsed = input
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         guard parsed != ext.owners else { return }
         ext.owners = parsed
+        ext.refresh()
+    }
+
+    private func commitHost() {
+        let trimmed = hostInput.trimmingCharacters(in: .whitespaces)
+        guard trimmed != ext.forgejoHost else { return }
+        ext.forgejoHost = trimmed
+        ext.refresh()
+    }
+
+    private func commitToken() {
+        guard !tokenInput.isEmpty else { return }
+        ext.setForgejoToken(tokenInput)
+        tokenInput = ""
         ext.refresh()
     }
 }
