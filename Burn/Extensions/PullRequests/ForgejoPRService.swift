@@ -18,16 +18,22 @@ struct ForgejoConfig: Equatable {
 }
 
 enum ForgejoPRError: LocalizedError {
-    case unauthorized
-    case http(status: Int, body: String)
+    case unauthorized(host: String)
+    case forbidden(host: String, detail: String)
+    case accessGateway(host: String, status: Int)
+    case http(host: String, status: Int, body: String)
     case decodeFailed(String)
 
     var errorDescription: String? {
         switch self {
-        case .unauthorized:
-            return "Forgejo token rejected. Regenerate it with the read:issue scope."
-        case .http(let status, let body):
-            return "Forgejo request failed (\(status)): \(body)"
+        case .unauthorized(let host):
+            return "\(host) rejected the token. Regenerate it with the read:issue scope."
+        case .forbidden(let host, let detail):
+            return "\(host) denied the token: \(detail)"
+        case .accessGateway(let host, let status):
+            return "\(host) answered \(status) from an access gateway, not Forgejo. Check your VPN or SSO session."
+        case .http(let host, let status, let body):
+            return "\(host) request failed (\(status)): \(body)"
         case .decodeFailed(let detail):
             return "Failed to parse Forgejo response: \(detail)"
         }
@@ -107,28 +113,62 @@ enum ForgejoPRService {
         var issues: [ForgejoIssue] = []
         for page in 1...maxPages {
             let url = searchURL(config: config, state: state, since: since, page: page)
-            let batch = try await fetch(url: url, token: config.token)
+            let batch = try await fetch(url: url, token: config.token, host: config.label)
             issues += batch
             if batch.count < pageSize { return Page(issues: issues, truncated: false) }
         }
         return Page(issues: issues, truncated: true)
     }
 
-    private static func fetch(url: URL, token: String) async throws -> [ForgejoIssue] {
+    private static func fetch(url: URL, token: String, host: String) async throws -> [ForgejoIssue] {
         var request = URLRequest(url: url)
         request.setValue("token \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        switch status {
-        case 200:
-            return try decode(data)
-        case 401, 403:
-            throw ForgejoPRError.unauthorized
-        default:
-            throw ForgejoPRError.http(status: status, body: String(data: data, encoding: .utf8) ?? "")
+        if status == 200 { return try decode(data) }
+        throw error(status: status, data: data, host: host)
+    }
+
+    /// An HTML body means something in front of Forgejo answered (Cloudflare Access, an SSO
+    /// portal), so the token isn't the problem and shouldn't be blamed for it.
+    static func error(status: Int, data: Data, host: String) -> ForgejoPRError {
+        guard looksLikeJSON(data) else {
+            return .accessGateway(host: host, status: status)
         }
+        let detail = clip(apiMessage(data) ?? flatten(data))
+        switch status {
+        case 401:
+            return .unauthorized(host: host)
+        case 403:
+            return .forbidden(host: host, detail: detail)
+        default:
+            return .http(host: host, status: status, body: detail)
+        }
+    }
+
+    private static func looksLikeJSON(_ data: Data) -> Bool {
+        guard let first = data.first(where: { !" \t\r\n".utf8.contains($0) }) else { return false }
+        return first == UInt8(ascii: "{") || first == UInt8(ascii: "[")
+    }
+
+    private static func apiMessage(_ data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = object["message"] as? String,
+              !message.isEmpty else { return nil }
+        return message
+    }
+
+    private static func flatten(_ data: Data) -> String {
+        (String(data: data, encoding: .utf8) ?? "")
+            .split(whereSeparator: \.isNewline)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func clip(_ text: String, limit: Int = 120) -> String {
+        text.count > limit ? String(text.prefix(limit)) + "…" : text
     }
 
     static func decode(_ data: Data) throws -> [ForgejoIssue] {

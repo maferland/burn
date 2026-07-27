@@ -103,6 +103,57 @@ final class ForgejoPRServiceTests: XCTestCase {
         XCTAssertNil(value(of: "since", in: items))
     }
 
+    func testAccessGatewayHTMLIsNotBlamedOnTheToken() {
+        let html = Data("<!doctype html><html><head><title>Error ・ Cloudflare Access</title>".utf8)
+        let error = ForgejoPRService.error(status: 403, data: html, host: "git.example.com")
+
+        guard case .accessGateway(let host, let status) = error else {
+            return XCTFail("expected accessGateway, got \(error)")
+        }
+        XCTAssertEqual(host, "git.example.com")
+        XCTAssertEqual(status, 403)
+        let message = try? XCTUnwrap(error.errorDescription)
+        XCTAssertEqual(message?.contains("access gateway"), true)
+        XCTAssertEqual(message?.lowercased().contains("regenerate"), false)
+    }
+
+    func testEmptyBodyCountsAsGateway() {
+        guard case .accessGateway = ForgejoPRService.error(status: 502, data: Data(), host: "h") else {
+            return XCTFail("expected accessGateway for an empty body")
+        }
+    }
+
+    func testUnauthorizedOnlyFor401WithJSONBody() throws {
+        let body = Data(#"{"message":"token is required"}"#.utf8)
+        let error = ForgejoPRService.error(status: 401, data: body, host: "git.example.com")
+
+        guard case .unauthorized(let host) = error else {
+            return XCTFail("expected unauthorized, got \(error)")
+        }
+        XCTAssertEqual(host, "git.example.com")
+        XCTAssertTrue(try XCTUnwrap(error.errorDescription).contains("read:issue"))
+    }
+
+    func testForbiddenSurfacesTheAPIMessage() throws {
+        let body = Data(#"{"message":"token does not have at least one of required scope(s): [read:issue]"}"#.utf8)
+        let error = ForgejoPRService.error(status: 403, data: body, host: "git.example.com")
+
+        guard case .forbidden = error else { return XCTFail("expected forbidden, got \(error)") }
+        XCTAssertTrue(try XCTUnwrap(error.errorDescription).contains("required scope(s)"))
+    }
+
+    func testOtherStatusesTrimTheBody() throws {
+        let body = Data(("{\"message\":\"" + String(repeating: "x", count: 400) + "\"}").utf8)
+        let error = ForgejoPRService.error(status: 500, data: body, host: "git.example.com")
+
+        guard case .http(_, let status, let reported) = error else {
+            return XCTFail("expected http, got \(error)")
+        }
+        XCTAssertEqual(status, 500)
+        XCTAssertLessThanOrEqual(reported.count, 121)
+        XCTAssertTrue(reported.hasSuffix("…"))
+    }
+
     func testConfigRequiresHostAndToken() {
         XCTAssertNil(ForgejoConfig(host: "", token: "t"))
         XCTAssertNil(ForgejoConfig(host: "git.example.com", token: ""))
