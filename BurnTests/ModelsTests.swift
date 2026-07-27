@@ -171,9 +171,11 @@ final class ModelsTests: XCTestCase {
     }
 
     func testCanGoBackFalseAtEarliestBoundary() throws {
-        // Single day of data — navigating back to that week should disable further back nav
+        // Single day of data — navigating back to that week should disable further back nav.
+        // Dated relative to now: a fixed date rots once it falls outside the navigation budget.
+        let earliest = UsageData.dateString(from: Calendar.current.date(byAdding: .day, value: -21, to: Date())!)
         let json = """
-        {"daily":[{"date":"2026-02-21","inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":5.00,"modelsUsed":[],"modelBreakdowns":[]}],"totals":{"inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":5.00}}
+        {"daily":[{"date":"\(earliest)","inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":5.00,"modelsUsed":[],"modelBreakdowns":[]}],"totals":{"inputTokens":0,"outputTokens":0,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":0,"totalCost":5.00}}
         """
         let response = try JSONDecoder().decode(CCUsageResponse.self, from: json.data(using: .utf8)!)
 
@@ -185,6 +187,7 @@ final class ModelsTests: XCTestCase {
             usage = UsageData.from(response: response, weekOffset: offset)
         }
         XCTAssertFalse(usage.canGoBack)
+        XCTAssertGreaterThan(offset, -20, "Ran out of navigation budget before reaching the earliest week")
     }
 
     func testCanGoBackTrueWhenMoreDataExists() throws {
