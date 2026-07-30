@@ -99,6 +99,44 @@ else
     echo "WARN: no Developer ID Application certificate found, skipping signing"
 fi
 
+# A keychain profile keeps the app-specific password out of the process list.
+# Create one with: xcrun notarytool store-credentials <name> --apple-id ... --team-id ... --password ...
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+
+can_notarize() {
+    [ -n "${NOTARY_PROFILE}" ] ||
+        { [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZE_PASSWORD:-}" ]; }
+}
+
+notarize() {
+    if [ -n "${NOTARY_PROFILE}" ]; then
+        echo "Submitting ${1} for notarization (keychain profile ${NOTARY_PROFILE})..."
+        xcrun notarytool submit "${1}" --keychain-profile "${NOTARY_PROFILE}" --wait
+        return
+    fi
+    echo "Submitting ${1} for notarization..."
+    echo "WARN: passing the password on the command line, where any local process can read it."
+    echo "      Set NOTARY_PROFILE to use a keychain profile instead."
+    xcrun notarytool submit "${1}" \
+        --apple-id "${APPLE_ID}" \
+        --team-id "${APPLE_TEAM_ID}" \
+        --password "${NOTARIZE_PASSWORD}" \
+        --wait
+}
+
+# Notarize the app before it goes in the image, so a copy dragged out of the DMG carries its
+# own ticket instead of needing Gatekeeper to fetch one.
+if can_notarize; then
+    ZIP_PATH="/tmp/${APP_NAME}-notarize.zip"
+    rm -f "${ZIP_PATH}"
+    ditto -c -k --keepParent "${APP_BUNDLE}" "${ZIP_PATH}"
+    notarize "${ZIP_PATH}"
+    rm -f "${ZIP_PATH}"
+    echo "Stapling notarization ticket to ${APP_BUNDLE}..."
+    xcrun stapler staple "${APP_BUNDLE}"
+    xcrun stapler validate "${APP_BUNDLE}"
+fi
+
 echo "Creating DMG..."
 rm -rf /tmp/Burn-dmg
 mkdir -p /tmp/Burn-dmg
@@ -133,28 +171,14 @@ detach_image() {
 }
 detach_image "${DMG_NAME}"
 
-# A keychain profile keeps the app-specific password out of the process list.
-# Create one with: xcrun notarytool store-credentials <name> --apple-id ... --team-id ... --password ...
-NOTARY_PROFILE="${NOTARY_PROFILE:-}"
-
-if [ -n "${NOTARY_PROFILE}" ]; then
-    echo "Submitting for notarization (keychain profile ${NOTARY_PROFILE})..."
-    xcrun notarytool submit "${DMG_NAME}" --keychain-profile "${NOTARY_PROFILE}" --wait
-elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${NOTARIZE_PASSWORD:-}" ]; then
-    echo "Submitting for notarization..."
-    echo "WARN: passing the password on the command line, where any local process can read it."
-    echo "      Set NOTARY_PROFILE to use a keychain profile instead."
-    xcrun notarytool submit "${DMG_NAME}" \
-        --apple-id "${APPLE_ID}" \
-        --team-id "${APPLE_TEAM_ID}" \
-        --password "${NOTARIZE_PASSWORD}" \
-        --wait
-else
+if ! can_notarize; then
     echo "WARN: no notarization credentials, skipping notarization"
     exit 0
 fi
 
-echo "Stapling notarization ticket..."
+notarize "${DMG_NAME}"
+
+echo "Stapling notarization ticket to ${DMG_NAME}..."
 xcrun stapler staple "${DMG_NAME}"
 xcrun stapler validate "${DMG_NAME}"
 

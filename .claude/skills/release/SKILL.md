@@ -47,7 +47,8 @@ If any of these are missing, the script falls back to an unsigned build, which m
    ```
    This runs: `swift test` → `doppler run -- ./scripts/package_app.sh` (build, sign, package DMG, submit to Apple notary, staple) → `gh release create` → `update_homebrew_tap.sh`.
 
-   Notarization takes 30–90 seconds. Watch for `status: Accepted` and `The staple and validate action worked!` in the output.
+   The app and the DMG are notarized separately, so expect two submissions and 2–4 minutes total.
+   Watch for `status: Accepted` and `The staple and validate action worked!` after each.
 
 5. **Verify**:
    - `spctl --assess --type execute --verbose=4 /Applications/Burn.app` should print `accepted` and `source=Notarized Developer ID` after a fresh `brew reinstall --cask maferland/tap/burn`.
