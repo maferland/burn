@@ -27,6 +27,7 @@ final class PullRequestExtension: BurnExtension {
     }
 
     private var forgejoToken: String?
+    private var forgejoTokenIssue: String?
 
     var hasForgejoToken: Bool { forgejoToken != nil }
 
@@ -34,17 +35,33 @@ final class PullRequestExtension: BurnExtension {
         self.usageService = usageService
         self.owners = UserDefaults.standard.array(forKey: Self.ownersKey) as? [String] ?? []
         self.forgejoHost = UserDefaults.standard.string(forKey: Self.forgejoHostKey) ?? ""
-        self.forgejoToken = KeychainStore.read(service: Self.forgejoTokenService)
+        loadForgejoToken()
     }
 
     func setForgejoToken(_ token: String) {
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             KeychainStore.delete(service: Self.forgejoTokenService)
-            forgejoToken = nil
         } else {
             KeychainStore.write(trimmed, service: Self.forgejoTokenService)
-            forgejoToken = trimmed
+        }
+        loadForgejoToken()
+    }
+
+    /// Read back rather than trusting the write, so a keychain that refuses this build says so.
+    private func loadForgejoToken() {
+        switch KeychainStore.read(service: Self.forgejoTokenService) {
+        case .value(let token):
+            forgejoToken = token
+            forgejoTokenIssue = nil
+        case .missing:
+            forgejoToken = nil
+            forgejoTokenIssue = forgejoHost.isEmpty ? nil : "No token stored for \(forgejoHost). Add one in settings."
+        case .refused(let status):
+            forgejoToken = nil
+            forgejoTokenIssue = forgejoHost.isEmpty
+                ? nil
+                : "The keychain refused the \(forgejoHost) token (\(status)). Re-enter it in settings."
         }
     }
 
@@ -57,8 +74,11 @@ final class PullRequestExtension: BurnExtension {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        // Re-read on every refresh: a token added or rebound since launch shouldn't need a restart.
+        loadForgejoToken()
         let owners = self.owners
         let config = forgejoConfig
+        let tokenIssue = forgejoTokenIssue
         let monthStart = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
         // The rolling 7-day week window can reach into the previous month, so fetch from
         // whichever start is earlier — otherwise weekPRs undercounts near the start of a month.
@@ -77,7 +97,7 @@ final class PullRequestExtension: BurnExtension {
             let fetched = results.compactMap(\.result)
             self.prs = fetched.flatMap(\.prs).sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
             self.truncated = fetched.contains(where: \.truncated)
-            let errors = results.compactMap(\.errorMessage)
+            let errors = [tokenIssue].compactMap { $0 } + results.compactMap(\.errorMessage)
             self.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
             self.lastRefresh = Date()
             self.isLoading = false
