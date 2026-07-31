@@ -51,9 +51,11 @@ struct MenuBarLabel: View {
 class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
     lazy var service = UsageService(settings: settings)
+    lazy var codexService = CodexUsageService()
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
         r.register(UsageExtension(service: service, settings: settings))
+        r.register(CodexExtension(service: codexService, settings: settings))
         r.register(PullRequestExtension(usageService: service))
         return r
     }()
