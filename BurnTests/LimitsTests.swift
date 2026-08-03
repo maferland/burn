@@ -409,10 +409,11 @@ final class LimitsTests: XCTestCase {
     func testSpendLine() {
         XCTAssertEqual(
             Formatters.spendLine(SpendSnapshot(usedDollars: 73.35, limitDollars: 10_000)),
-            "$73 of $10,000 used"
+            "$73 of $10,000 billed this month"
         )
         XCTAssertEqual(
-            Formatters.spendLine(SpendSnapshot(usedDollars: 5, limitDollars: nil)), "$5 used"
+            Formatters.spendLine(SpendSnapshot(usedDollars: 5, limitDollars: nil)),
+            "$5 billed this month"
         )
         XCTAssertEqual(Formatters.percent(29.6), "30%")
     }

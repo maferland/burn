@@ -42,10 +42,12 @@ enum Formatters {
         "\(Int(value.rounded()))%"
     }
 
-    /// "$73 of $10,000 used" for seats billed against credits instead of a rolling window.
+    /// Says "billed" so it can't be mistaken for the Usage tab, which prices local logs at API rates.
     static func spendLine(_ spend: SpendSnapshot) -> String {
-        guard let limit = spend.limitDollars else { return "\(costRounded(spend.usedDollars)) used" }
-        return "\(costRounded(spend.usedDollars)) of \(costRounded(limit)) used"
+        guard let limit = spend.limitDollars else {
+            return "\(costRounded(spend.usedDollars)) billed this month"
+        }
+        return "\(costRounded(spend.usedDollars)) of \(costRounded(limit)) billed this month"
     }
 
     /// "18% under typical" / "42% over typical", nil when there's no baseline.

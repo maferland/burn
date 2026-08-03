@@ -63,8 +63,8 @@ struct LimitsDashboardView: View {
     }
 
     private func spendCaption(snapshot: AccountSnapshot, spend: SpendSnapshot) -> String {
-        var parts = spend.limitDollars.map { ["of \(Formatters.costRounded($0)) used"] } ?? ["used"]
-        parts.append("\(snapshot.planLabel ?? "usage-based") seat")
+        var parts = spend.limitDollars
+            .map { ["of \(Formatters.costRounded($0)) billed this month"] } ?? ["billed this month"]
         parts.append(contentsOf: [staleness(snapshot)].compactMap { $0 })
         return parts.joined(separator: " · ")
     }
