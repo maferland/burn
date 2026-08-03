@@ -13,8 +13,19 @@ final class UsageExtension: BurnExtension {
         self.settings = settings
     }
 
+    var tabGlyph: TabGlyph { .asset }
+
     func refresh() {
         service.refresh()
+    }
+
+    func statusLine() -> String? {
+        let data = service.usageData
+        guard data.lastRefreshDate != .distantPast else { return nil }
+        if let comparison = Formatters.comparison(value: data.todayCost, baseline: service.typicalDayCost) {
+            return comparison
+        }
+        return "\(Formatters.costRounded(data.todayCost)) today"
     }
 
     func menuBarSegment() -> Text? {

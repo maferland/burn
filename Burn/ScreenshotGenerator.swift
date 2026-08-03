@@ -39,6 +39,9 @@ enum ScreenshotGenerator {
 
         let registry = ExtensionRegistry()
         registry.register(UsageExtension(service: service, settings: settings))
+        let codexService = CodexUsageService()
+        codexService.response = mockCodexUsage()
+        registry.register(CodexExtension(service: codexService, settings: settings))
         let prExt = PullRequestExtension(usageService: service)
         prExt.prs = mockPRs()
         prExt.lastRefresh = Date()
@@ -47,9 +50,9 @@ enum ScreenshotGenerator {
             registry.activeTabId = activeId
         }
         let view = MenuBarView(service: service, settings: settings, registry: registry)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .padding(4)
+            .background(Ember.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(6)
             .environment(\.colorScheme, .dark)
 
         let renderer = ImageRenderer(content: view)
@@ -113,6 +116,62 @@ enum ScreenshotGenerator {
                 hostLabel: "git.example.com"
             ),
         ]
+    }
+
+    private static func mockCodexUsage() -> CodexUsageResponse {
+        let calendar = Calendar.current
+        let today = Date()
+        let costs: [Double] = [1.90, 4.10, 0.80, 6.25, 3.40, 5.10, 2.85]
+
+        let daily: [CodexDailyUsage] = (0..<7).map { i in
+            let date = calendar.date(byAdding: .day, value: -(6 - i), to: today)!
+            let tokens = CodexTokens(
+                inputTokens: Int(costs[i] * 900_000),
+                cachedInputTokens: Int(costs[i] * 610_000),
+                outputTokens: Int(costs[i] * 24_000),
+                reasoningOutputTokens: Int(costs[i] * 9_000)
+            )
+            return CodexDailyUsage(
+                date: CodexSessionReader.dateString(from: date),
+                tokens: tokens,
+                estimatedCost: costs[i],
+                modelBreakdowns: [
+                    CodexModelBreakdown(
+                        modelName: "gpt-5.1-codex-max",
+                        tokens: tokens,
+                        estimatedCost: costs[i] * 0.78
+                    ),
+                    CodexModelBreakdown(
+                        modelName: "gpt-5.1-codex",
+                        tokens: tokens,
+                        estimatedCost: costs[i] * 0.22
+                    ),
+                ]
+            )
+        }
+
+        let limits = CodexRateLimits(
+            capturedAt: calendar.date(byAdding: .hour, value: -2, to: today)!,
+            planType: "pro",
+            primary: CodexRateLimitWindow(
+                usedPercent: 61,
+                windowMinutes: 300,
+                resetsAt: calendar.date(byAdding: .hour, value: 3, to: today)!
+            ),
+            secondary: CodexRateLimitWindow(
+                usedPercent: 47,
+                windowMinutes: 10_080,
+                resetsAt: calendar.date(byAdding: .day, value: 4, to: today)!
+            )
+        )
+
+        return CodexUsageResponse(
+            daily: daily,
+            tokens: daily.reduce(CodexTokens()) { $0 + $1.tokens },
+            estimatedCost: costs.reduce(0, +),
+            rateLimits: limits,
+            skippedCompressedFiles: 3
+        )
     }
 
     private static func mockDays() -> [DailyUsage] {

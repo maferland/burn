@@ -13,7 +13,6 @@ struct UsageDashboardView: View {
     let settings: SettingsStore
 
     @Environment(\.openBurnSettings) private var openSettings
-    @Environment(\.burnTabBarVisible) private var tabBarVisible
 
     @State private var weekOffset = 0
     @State private var selectedDayId: String?
@@ -52,237 +51,200 @@ struct UsageDashboardView: View {
                     onBack: { toggleDetail(scope) },
                     onSettings: openSettings
                 )
-                .transition(slideTransition(.trailing))
+                .transition(.move(edge: .trailing))
             } else {
                 mainContent
-                    .transition(slideTransition(.leading))
+                    .transition(.move(edge: .leading))
             }
         }
         .clipped()
     }
 
-    private func slideTransition(_ edge: Edge) -> AnyTransition {
-        .asymmetric(insertion: .move(edge: edge), removal: .move(edge: edge))
-    }
-
     private var mainContent: some View {
         VStack(spacing: 0) {
-            if !tabBarVisible {
-                header
-                Divider()
-            }
             errorBanner
-            heroSection
-            Divider()
-            chartSection
-            Divider()
-            monthSection
+            hero
+            paceTrack
+            modelSection
+            contextStrip
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Sections
-
-    private var header: some View {
-        HStack {
-            Image(nsImage: MenuBarLabel.loadMenuBarIcon())
-                .resizable()
-                .frame(width: 20, height: 20)
-            Text("Burn").font(.headline)
-            Spacer()
-            Button {
-                openSettings()
-            } label: {
-                Image(systemName: "gear").foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
-    private var heroSection: some View {
-        VStack(spacing: 4) {
-            heroPrimary
-            heroSecondary
-            Text(heroDateLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 12)
-    }
+    // MARK: - Hero
 
     @ViewBuilder
-    private var heroPrimary: some View {
+    private var hero: some View {
         let day = selectedDay
         let cost = day?.totalCost ?? 0
         let totalIO = (day?.inputTokens ?? 0) + (day?.outputTokens ?? 0)
-        let text: String = {
-            switch settings.displayMode {
-            case .cost, .both: return Formatters.cost(cost)
-            case .tokens:      return Formatters.tokensCompact(totalIO)
+
+        Group {
+            if settings.displayMode == .tokens {
+                EmberHero(primary: Formatters.tokensCompact(totalIO)) { heroCaption }
+            } else {
+                EmberHero(cost: cost) { heroCaption }
             }
-        }()
-        Text(text)
-            .font(.system(size: 36, weight: .bold, design: .rounded))
-            .foregroundStyle(.primary)
+        }
+        .onTapGesture { if let day { toggleDetail(.day(day.id)) } }
+        .pointingHandCursor()
     }
 
     @ViewBuilder
-    private var heroSecondary: some View {
-        if let day = selectedDay {
-            Button { toggleDetail(.day(day.id)) } label: {
-                HStack(spacing: 6) {
-                    if settings.displayMode != .cost {
-                        let cache = day.cacheCreationTokens + day.cacheReadTokens
-                        Text(Formatters.tokenLine(input: day.inputTokens, output: day.outputTokens, cache: cache))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Show breakdown")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
+    private var heroCaption: some View {
+        let label = selectedDay.map { Formatters.dayLabel($0.date).lowercased() } ?? "today"
+        if displayData.isCurrentWeek, let pace = monthPace {
+            Text("\(label) · month on pace for ")
+                + Text(Formatters.costRounded(pace)).bold().foregroundColor(Ember.text(0.9))
+        } else if settings.displayMode != .cost, let day = selectedDay {
+            Text(Formatters.tokenLine(
+                input: day.inputTokens,
+                output: day.outputTokens,
+                cache: day.cacheCreationTokens + day.cacheReadTokens
+            ))
+        } else {
+            Text(label)
         }
     }
 
-    private var heroDateLabel: String {
-        guard let day = selectedDay else { return "Today" }
-        return Formatters.dayLabel(day.date)
+    /// Month-to-date spend extrapolated across the whole month.
+    private var monthPace: Double? {
+        let calendar = Calendar.current
+        let now = Date()
+        guard displayData.monthTotal > 0,
+              let range = calendar.range(of: .day, in: .month, for: now) else { return nil }
+        let elapsed = calendar.component(.day, from: now)
+        guard elapsed > 0 else { return nil }
+        return displayData.monthTotal / Double(elapsed) * Double(range.count)
+    }
+
+    // MARK: - Pace
+
+    /// A typical day always sits at `typicalMark`, so the fill means the same thing every day.
+    private static let typicalMark = 0.72
+
+    @ViewBuilder
+    private var paceTrack: some View {
+        let cost = selectedDay?.totalCost ?? 0
+        let typical = typicalDay
+        let leading = displayData.isCurrentWeek && selectedDayId == nil
+            ? "now \(Formatters.clockTime(Date()))"
+            : Formatters.dayLabel(selectedDay?.date ?? "")
+
+        EmberTrack(
+            fill: typical > 0 ? cost / typical * Self.typicalMark : (cost > 0 ? Self.typicalMark : 0),
+            tick: typical > 0 ? Self.typicalMark : nil,
+            leading: leading,
+            trailing: typical > 0 ? "typical day \(Formatters.costRounded(typical))" : ""
+        )
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+    }
+
+    private var typicalDay: Double { service.typicalDayCost }
+
+    // MARK: - Models
+
+    @ViewBuilder
+    private var modelSection: some View {
+        if let day = selectedDay, !day.modelBreakdowns.isEmpty {
+            let ranked = day.modelBreakdowns.sorted { $0.cost > $1.cost }
+            let leader = ranked.first?.cost ?? 0
+            EmberSection(title: "By model", trailing: cacheNote(for: day)) {
+                VStack(spacing: 10) {
+                    ForEach(Array(ranked.prefix(4).enumerated()), id: \.element.modelName) { index, model in
+                        EmberBarRow(
+                            label: Formatters.modelLabel(model.modelName),
+                            fraction: leader > 0 ? model.cost / leader : 0,
+                            value: Formatters.cost(model.cost),
+                            emphasis: index == 0 ? 1.0 : (index == 1 ? 0.55 : 0.4)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Share of the priced components, not of totalCost, so the two always agree.
+    private func cacheNote(for day: DailyUsage) -> String? {
+        let breakdown = BreakdownData.compute(title: "", subtitle: "", days: [day])
+        let cacheCost = breakdown.cacheReadCost + breakdown.cacheWriteCost
+        let priced = breakdown.inputCost + breakdown.outputCost + cacheCost
+        guard priced > 0, cacheCost > 0 else { return nil }
+        return "\(Int((cacheCost / priced * 100).rounded()))% cache · \(Formatters.cost(cacheCost))"
+    }
+
+    // MARK: - Context strip
+
+    private var contextStrip: some View {
+        let data = displayData
+        let maxCost = data.last7Days.map(\.totalCost).max() ?? 0
+        let weekValue = settings.displayMode == .tokens
+            ? Formatters.tokensCompact(tokens.weekInput + tokens.weekOutput)
+            : Formatters.costRounded(data.weekTotal)
+        let monthValue = settings.displayMode == .tokens
+            ? Formatters.tokensCompact(tokens.monthInput + tokens.monthOutput)
+            : Formatters.costRounded(data.monthTotal)
+
+        return EmberContextStrip(
+            bars: data.last7Days.map {
+                .init(id: $0.id, fraction: maxCost > 0 ? $0.totalCost / maxCost : 0)
+            },
+            selectedId: selectedDay?.id,
+            leading: .init(
+                label: data.isCurrentWeek ? "Last 7 days" : Formatters.weekRange(data),
+                value: weekValue
+            ),
+            trailing: .init(label: Formatters.monthName(data), value: monthValue),
+            onSelect: { selectedDayId = $0 },
+            onOpen: { toggleDetail($0 == .week ? .week : .month) },
+            nav: .init(
+                canGoBack: data.canGoBack,
+                canGoForward: weekOffset < 0,
+                onBack: { shiftWeek(-1) },
+                onForward: { shiftWeek(1) }
+            )
+        )
+        .background(alignment: .topLeading) { weekShortcuts }
+    }
+
+    /// Keyboard paging kept alive now that the visible nav is two inline chevrons.
+    private var weekShortcuts: some View {
+        ZStack {
+            Button("") { shiftWeek(-1) }.keyboardShortcut(.leftArrow, modifiers: .command)
+            Button("") { shiftWeek(1) }.keyboardShortcut(.rightArrow, modifiers: .command)
+            Button("") { shiftWeek(nil) }.keyboardShortcut("0", modifiers: .command)
+        }
+        .frame(width: 1, height: 1)
+        .opacity(0)
+        .allowsHitTesting(false)
+    }
+
+    private func shiftWeek(_ delta: Int?) {
+        if let delta {
+            let next = weekOffset + delta
+            guard next <= 0, delta < 0 ? displayData.canGoBack : true else { return }
+            weekOffset = next
+        } else {
+            weekOffset = 0
+        }
+        selectedDayId = nil
+        withAnimation(.easeInOut(duration: 0.15)) { openScope = nil }
     }
 
     @ViewBuilder
     private var errorBanner: some View {
         if let error = service.errorMessage {
-            Label(error, systemImage: "exclamationmark.triangle")
-                .font(.caption2)
-                .foregroundStyle(.red)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var chartSection: some View {
-        let data = displayData
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                weekNavButton(
-                    direction: .previous,
-                    enabled: data.canGoBack,
-                    icon: "chevron.left",
-                    shortcut: .leftArrow
-                )
-
-                if data.isCurrentWeek {
-                    Spacer()
-                } else {
-                    Button {
-                        weekOffset = 0
-                        selectedDayId = nil
-                        withAnimation(.easeInOut(duration: 0.15)) { openScope = nil }
-                    } label: {
-                        Text("This Week")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(.quaternary, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
-                    .keyboardShortcut("0", modifiers: .command)
-                    .pointingHandCursor()
-                }
-
-                weekNavButton(
-                    direction: .next,
-                    enabled: weekOffset < 0,
-                    icon: "chevron.right",
-                    shortcut: .rightArrow
-                )
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(error).lineLimit(2)
             }
-            .padding(.horizontal, 14)
-
-            if data.last7Days.isEmpty {
-                Text("No data")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 8)
-            } else {
-                BarChartView(days: data.last7Days, selectedDayId: $selectedDayId)
-                    .frame(height: 80)
-                    .padding(.horizontal, 14)
-            }
+            .font(.system(size: 10.5))
+            .foregroundStyle(Ember.accentDeep)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
         }
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-    }
-
-    private enum WeekNavDirection { case previous, next }
-
-    private func weekNavButton(
-        direction: WeekNavDirection,
-        enabled: Bool,
-        icon: String,
-        shortcut: KeyEquivalent
-    ) -> some View {
-        Button {
-            weekOffset += (direction == .previous ? -1 : 1)
-            selectedDayId = nil
-            withAnimation(.easeInOut(duration: 0.15)) { openScope = nil }
-        } label: {
-            Image(systemName: icon)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(enabled ? .secondary : .quaternary)
-                .frame(width: 28, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .keyboardShortcut(shortcut, modifiers: .command)
-        .pointingHandCursor()
-    }
-
-    private var monthSection: some View {
-        let data = displayData
-        return HStack(spacing: 8) {
-            StatCard(
-                label: data.isCurrentWeek ? "This Week" : Formatters.weekRange(data),
-                value: Formatters.formatPrimary(
-                    cost: data.weekTotal,
-                    tokens: tokens.weekInput + tokens.weekOutput,
-                    mode: settings.displayMode
-                ),
-                subtitle: settings.displayMode == .both
-                    ? Formatters.tokenSplit(input: tokens.weekInput, output: tokens.weekOutput)
-                    : nil,
-                onTap: { toggleDetail(.week) }
-            )
-            StatCard(
-                label: data.isCurrentWeek ? "This Month" : Formatters.monthName(data),
-                value: Formatters.formatPrimary(
-                    cost: data.monthTotal,
-                    tokens: tokens.monthInput + tokens.monthOutput,
-                    mode: settings.displayMode
-                ),
-                subtitle: settings.displayMode == .both
-                    ? Formatters.tokenSplit(input: tokens.monthInput, output: tokens.monthOutput)
-                    : nil,
-                onTap: { toggleDetail(.month) }
-            )
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Detail wiring
@@ -306,7 +268,7 @@ struct UsageDashboardView: View {
                 days: [day]
             )
         case .week:
-            let title = displayData.isCurrentWeek ? "This Week" : "Week"
+            let title = displayData.isCurrentWeek ? "Last 7 days" : "Week"
             return BreakdownData.compute(
                 title: title,
                 subtitle: Formatters.weekRange(displayData),
@@ -315,9 +277,8 @@ struct UsageDashboardView: View {
         case .month:
             let monthPrefix = String(UsageData.dateString(from: displayData.weekEnd).prefix(7))
             let days = (service.lastResponse?.daily ?? []).filter { $0.date.hasPrefix(monthPrefix) }
-            let title = displayData.isCurrentWeek ? "This Month" : Formatters.monthName(displayData)
             return BreakdownData.compute(
-                title: title,
+                title: Formatters.monthName(displayData),
                 subtitle: Formatters.monthName(displayData),
                 days: days
             )
