@@ -299,6 +299,49 @@ final class LimitsTests: XCTestCase {
         XCTAssertEqual(service.response.accounts.count, 1)
     }
 
+    /// A blocking Keychain prompt used to make a fresh number look 14 minutes old.
+    func testCapturedAtMarksArrivalNotCallStart() async throws {
+        try writeClaudeCredentials()
+        let started = Date()
+        let slow: LimitsTransport = { request in
+            try await Task.sleep(nanoseconds: 300_000_000)
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (Data(self.subscriptionBody.utf8), response)
+        }
+        let snapshot = await ClaudeLimitsClient(transport: slow).snapshot(for: account())
+
+        let captured = try XCTUnwrap(snapshot.capturedAt)
+        XCTAssertGreaterThan(captured.timeIntervalSince(started), 0.25)
+    }
+
+    func testRequestsCarryATimeout() async throws {
+        try writeClaudeCredentials()
+        let seen = RequestBox()
+        let client = ClaudeLimitsClient(transport: { request in
+            seen.store(request)
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (Data(self.subscriptionBody.utf8), response)
+        })
+        _ = await client.snapshot(for: account())
+
+        XCTAssertEqual(seen.request?.timeoutInterval, ClaudeLimitsClient.timeout)
+        XCTAssertEqual(seen.request?.value(forHTTPHeaderField: "anthropic-beta"), "oauth-2025-04-20")
+    }
+
+    private final class RequestBox: @unchecked Sendable {
+        private(set) var request: URLRequest?
+        private let lock = NSLock()
+        func store(_ request: URLRequest) {
+            lock.lock()
+            self.request = request
+            lock.unlock()
+        }
+    }
+
     // MARK: - Account store
 
     @MainActor

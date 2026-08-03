@@ -4,6 +4,7 @@ import Foundation
 /// snapshot Codex already writes into its rollout logs, which `CodexSessionReader` parses.
 struct CodexLimitsClient {
     static let usageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
+    static let timeout: TimeInterval = 15
 
     var transport: LimitsTransport = LimitsHTTP.live
 
@@ -28,6 +29,7 @@ struct CodexLimitsClient {
         }
 
         var request = URLRequest(url: Self.usageURL)
+        request.timeoutInterval = Self.timeout
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
         if let accountId = credentials.accountId {
             request.setValue(accountId, forHTTPHeaderField: "chatgpt-account-id")
@@ -49,7 +51,7 @@ struct CodexLimitsClient {
                 planLabel: body.plan_type.map(Self.planLabel),
                 windows: body.windows(now: now),
                 spend: nil,
-                capturedAt: now,
+                capturedAt: Date(),
                 source: .api,
                 failure: nil
             )

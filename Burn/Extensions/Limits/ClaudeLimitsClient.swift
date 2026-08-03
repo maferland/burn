@@ -5,6 +5,7 @@ import Foundation
 struct ClaudeLimitsClient {
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     static let keychainService = "Claude Code-credentials"
+    static let timeout: TimeInterval = 15
 
     var transport: LimitsTransport = LimitsHTTP.live
     var readKeychain: (String) -> KeychainStore.ReadResult = { KeychainStore.read(service: $0) }
@@ -39,6 +40,7 @@ struct ClaudeLimitsClient {
         }
 
         var request = URLRequest(url: Self.usageURL)
+        request.timeoutInterval = Self.timeout
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
 
@@ -57,7 +59,8 @@ struct ClaudeLimitsClient {
                 planLabel: planLabel,
                 windows: body.windows,
                 spend: body.spendSnapshot,
-                capturedAt: now,
+                // Stamped on arrival, not on call: a blocking Keychain prompt can sit here for minutes.
+                capturedAt: Date(),
                 source: .api,
                 failure: nil
             )

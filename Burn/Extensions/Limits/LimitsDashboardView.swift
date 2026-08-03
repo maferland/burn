@@ -58,13 +58,25 @@ struct LimitsDashboardView: View {
         if let resetsAt = window.resetsAt, !window.hasReset {
             parts.append(Formatters.resetLabel(resetsAt))
         }
+        parts.append(contentsOf: [staleness(snapshot)].compactMap { $0 })
         return parts.joined(separator: " · ")
     }
 
     private func spendCaption(snapshot: AccountSnapshot, spend: SpendSnapshot) -> String {
-        guard let limit = spend.limitDollars else { return "used by \(snapshot.account.label)" }
-        return "of \(Formatters.costRounded(limit)) used · \(snapshot.planLabel ?? "usage-based") seat"
+        var parts = spend.limitDollars.map { ["of \(Formatters.costRounded($0)) used"] } ?? ["used"]
+        parts.append("\(snapshot.planLabel ?? "usage-based") seat")
+        parts.append(contentsOf: [staleness(snapshot)].compactMap { $0 })
+        return parts.joined(separator: " · ")
     }
+
+    /// The big number is worthless if it looks live when it isn't.
+    private func staleness(_ snapshot: AccountSnapshot) -> String? {
+        guard let capturedAt = snapshot.capturedAt,
+              Date().timeIntervalSince(capturedAt) > Self.stalenessThreshold else { return nil }
+        return Formatters.ago(capturedAt)
+    }
+
+    private static let stalenessThreshold: TimeInterval = 120
 
     private var firstProblem: String? {
         response.accounts.compactMap(\.failure).first?.message
@@ -111,8 +123,8 @@ struct LimitsDashboardView: View {
         if snapshot.source == .rolloutLogs {
             parts.append("from rollout logs")
         }
-        if let capturedAt = snapshot.capturedAt, Date().timeIntervalSince(capturedAt) > 120 {
-            parts.append(Formatters.ago(capturedAt))
+        if let age = staleness(snapshot) {
+            parts.append(age)
         }
         if let failure = snapshot.failure {
             parts.append(failure.message)

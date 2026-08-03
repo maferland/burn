@@ -3,9 +3,9 @@ import Foundation
 @Observable
 @MainActor
 final class LimitsService {
-    /// `/api/oauth/usage` rate-limits, and the registry can tick every minute — so the service keeps
-    /// its own floor and ignores the extra ticks.
-    static let minimumInterval: TimeInterval = 600
+    /// `/api/oauth/usage` rate-limits, so the service keeps a floor of its own and ignores the extra
+    /// ticks when the registry is set to refresh every minute.
+    static let minimumInterval: TimeInterval = 120
 
     var response: LimitsResponse = .empty
     var isLoading = false
@@ -58,7 +58,12 @@ final class LimitsService {
             let fresh = await Self.fetch(
                 accounts: accounts, claude: claude, codex: codex, rolloutLimits: fallback
             )
-            guard let self, !Task.isCancelled else { return }
+            guard let self else { return }
+            // Clearing this on the way out matters: a stuck `isLoading` blocks every later refresh.
+            guard !Task.isCancelled else {
+                self.isLoading = false
+                return
+            }
             let merged = Self.merge(fresh: fresh, previous: previous)
             self.response = LimitsResponse(accounts: merged)
             self.lastRefreshDate = Date()
