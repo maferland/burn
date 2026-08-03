@@ -42,6 +42,12 @@ enum ScreenshotGenerator {
         let codexService = CodexUsageService()
         codexService.response = mockCodexUsage()
         registry.register(CodexExtension(service: codexService, settings: settings))
+        let limitsService = LimitsService(
+            store: LimitsAccountStore(detect: { [] }),
+            cacheFile: FileManager.default.temporaryDirectory.appendingPathComponent("burn-shot-limits.json")
+        )
+        limitsService.response = mockLimits()
+        registry.register(LimitsExtension(service: limitsService))
         let prExt = PullRequestExtension(usageService: service)
         prExt.prs = mockPRs()
         prExt.lastRefresh = Date()
@@ -116,6 +122,44 @@ enum ScreenshotGenerator {
                 hostLabel: "git.example.com"
             ),
         ]
+    }
+
+    private static func mockLimits() -> LimitsResponse {
+        let now = Date()
+        let personal = LimitsAccount(
+            provider: .claude, label: "personal", homePath: "~/.claude-personal", isAutoDetected: false
+        )
+        let work = LimitsAccount(provider: .claude, label: "work", homePath: nil, isAutoDetected: true)
+        let codex = LimitsAccount(provider: .codex, label: "codex", homePath: nil, isAutoDetected: true)
+
+        return LimitsResponse(accounts: [
+            AccountSnapshot(
+                account: personal,
+                planLabel: "Max 20×",
+                windows: [
+                    LimitWindow(kind: .fiveHour, usedPercent: 38, resetsAt: now.addingTimeInterval(2 * 3_600)),
+                    LimitWindow(kind: .week, usedPercent: 70, resetsAt: now.addingTimeInterval(3 * 86_400)),
+                    LimitWindow(kind: .weekOpus, usedPercent: 12, resetsAt: now.addingTimeInterval(3 * 86_400)),
+                ],
+                spend: nil, capturedAt: now, source: .api, failure: nil
+            ),
+            AccountSnapshot(
+                account: work,
+                planLabel: "Enterprise",
+                windows: [],
+                spend: SpendSnapshot(usedDollars: 73.35, limitDollars: 10_000),
+                capturedAt: now, source: .api, failure: nil
+            ),
+            AccountSnapshot(
+                account: codex,
+                planLabel: "Pro",
+                windows: [
+                    LimitWindow(kind: .fiveHour, usedPercent: 21, resetsAt: now.addingTimeInterval(4_200)),
+                    LimitWindow(kind: .week, usedPercent: 44, resetsAt: now.addingTimeInterval(4 * 86_400)),
+                ],
+                spend: nil, capturedAt: now.addingTimeInterval(-900), source: .rolloutLogs, failure: nil
+            ),
+        ])
     }
 
     private static func mockCodexUsage() -> CodexUsageResponse {

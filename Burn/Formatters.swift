@@ -38,6 +38,16 @@ enum Formatters {
         return "resets \(weekdayShort.string(from: date))"
     }
 
+    static func percent(_ value: Double) -> String {
+        "\(Int(value.rounded()))%"
+    }
+
+    /// "$73 of $10,000 used" for seats billed against credits instead of a rolling window.
+    static func spendLine(_ spend: SpendSnapshot) -> String {
+        guard let limit = spend.limitDollars else { return "\(costRounded(spend.usedDollars)) used" }
+        return "\(costRounded(spend.usedDollars)) of \(costRounded(limit)) used"
+    }
+
     /// "18% under typical" / "42% over typical", nil when there's no baseline.
     static func comparison(value: Double, baseline: Double) -> String? {
         guard baseline > 0, value > 0 else { return nil }
