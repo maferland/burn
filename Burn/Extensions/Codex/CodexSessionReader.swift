@@ -20,6 +20,18 @@ enum CodexSessionReader {
         FileManager.default.fileExists(atPath: codexHome.path)
     }
 
+    /// A `~/.codex` holding only config and skills means Codex was never signed into or run here.
+    static var isConfigured: Bool {
+        isConfigured(home: codexHome)
+    }
+
+    static func isConfigured(home: URL) -> Bool {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: home.appendingPathComponent("auth.json").path) { return true }
+        return [home.appendingPathComponent("sessions"), home.appendingPathComponent("archived_sessions")]
+            .contains { fileManager.fileExists(atPath: $0.path) }
+    }
+
     static func readUsage() -> CodexUsageResponse {
         readUsage(roots: defaultRoots, pricing: CodexPricing.fetchPricing())
     }

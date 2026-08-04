@@ -22,6 +22,9 @@ protocol BurnExtension: AnyObject {
 
     /// Second line under the extension's name in settings.
     var settingsSubtitle: String? { get }
+
+    /// False when there is nothing on this machine to report yet, which keeps the tab out of the way.
+    var isConfigured: Bool { get }
 }
 
 extension BurnExtension {
@@ -29,6 +32,7 @@ extension BurnExtension {
     var tabGlyph: TabGlyph { .text(displayName) }
     func statusLine() -> String? { nil }
     var settingsSubtitle: String? { nil }
+    var isConfigured: Bool { true }
 }
 
 private struct OpenBurnSettingsKey: EnvironmentKey {
