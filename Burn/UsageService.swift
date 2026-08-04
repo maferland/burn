@@ -83,3 +83,9 @@ final class UsageService: @unchecked Sendable {
         try? JSONEncoder().encode(response).write(to: Self.cacheFile)
     }
 }
+
+extension UsageService {
+    func day(_ date: String) -> DailyUsage? {
+        lastResponse?.daily.first { $0.date == date }
+    }
+}

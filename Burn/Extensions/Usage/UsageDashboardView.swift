@@ -9,6 +9,7 @@ enum DetailScope: Equatable {
 }
 
 struct UsageDashboardView: View {
+    let ext: UsageExtension
     let service: UsageService
     let settings: SettingsStore
 
@@ -28,14 +29,14 @@ struct UsageDashboardView: View {
     }
 
     private var displayData: UsageData {
-        weekOffset == 0 ? service.usageData : service.usageData(weekOffset: weekOffset)
+        ext.providerUsage.usageData(scope: ext.scope, weekOffset: weekOffset)
     }
 
     private var tokens: TokenAggregates {
         TokenAggregates.compute(response: service.lastResponse, weekEnd: displayData.weekEnd)
     }
 
-    private var selectedDay: DailyUsage? {
+    var selectedDay: DailyUsage? {
         let days = displayData.last7Days
         if let id = selectedDayId, let day = days.first(where: { $0.id == id }) {
             return day
@@ -63,9 +64,10 @@ struct UsageDashboardView: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             errorBanner
+            providerChip
             hero
             paceTrack
-            modelSection
+            breakdownSection
             contextStrip
         }
         .frame(maxWidth: .infinity)
@@ -282,6 +284,103 @@ struct UsageDashboardView: View {
                 subtitle: Formatters.monthName(displayData),
                 days: days
             )
+        }
+    }
+}
+
+extension UsageDashboardView {
+    /// Scope picker. Only appears once there is a second provider to switch to.
+    @ViewBuilder
+    var providerChip: some View {
+        let scopes = ext.providerUsage.availableScopes
+        if scopes.count > 1 {
+            HStack(spacing: 6) {
+                Menu {
+                    ForEach(scopes) { scope in
+                        Button {
+                            ext.scope = scope
+                        } label: {
+                            Text(menuLabel(for: scope))
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(accent(for: ext.scope))
+                            .frame(width: 6, height: 6)
+                        Text(ext.scope.label)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(Ember.label)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Ember.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .pointingHandCursor()
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+        }
+    }
+
+    func menuLabel(for scope: UsageScope) -> String {
+        switch scope {
+        case .all:
+            let total = ext.providerUsage.availableProviders
+                .reduce(0) { $0 + ext.providerUsage.todayCost(for: $1) }
+            return "\(scope.label)  \(Formatters.costRounded(total))"
+        case .provider(let provider):
+            return "\(provider.displayName)  \(Formatters.costRounded(ext.providerUsage.todayCost(for: provider)))"
+        }
+    }
+
+    func accent(for scope: UsageScope) -> Color {
+        switch scope {
+        case .all: return Ember.accent
+        case .provider(let provider): return provider.accent
+        }
+    }
+}
+
+extension UsageDashboardView {
+    /// Scoped to one provider the question is "which model", across all of them it is "which provider".
+    @ViewBuilder
+    var breakdownSection: some View {
+        if ext.scope == .all {
+            providerSection
+        } else {
+            modelSection
+        }
+    }
+
+    @ViewBuilder
+    var providerSection: some View {
+        if let day = selectedDay {
+            let rows = ext.providerUsage.breakdown(on: day.date)
+            let leader = rows.map(\.cost).max() ?? 0
+            if !rows.isEmpty {
+                EmberSection(title: "By provider", trailing: Formatters.cost(day.totalCost)) {
+                    VStack(spacing: 10) {
+                        ForEach(rows, id: \.provider) { row in
+                            EmberBarRow(
+                                label: row.provider.displayName,
+                                fraction: leader > 0 ? row.cost / leader : 0,
+                                value: Formatters.cost(row.cost),
+                                emphasis: row.cost == leader ? 1.0 : 0.55,
+                                color: row.provider.accent
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
