@@ -173,6 +173,22 @@ final class PullRequestExtension: BurnExtension {
     var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: mergedPRs(in: weekPRs).count) }
     var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: mergedPRs(in: monthPRs).count) }
 
+    var tabGlyph: TabGlyph { .symbol("arrow.triangle.branch") }
+
+    var settingsSubtitle: String? {
+        forgejoHost.isEmpty ? "GitHub CLI" : "GitHub CLI · \(forgejoHost)"
+    }
+
+    func statusLine() -> String? {
+        guard lastRefresh != nil else { return nil }
+        let merged = mergedPRs(in: todayPRs)
+        guard let latest = merged.compactMap(\.mergedAt).max() else {
+            let open = todayOpenCount
+            return open > 0 ? "\(open) open today" : "Nothing merged today"
+        }
+        return "\(merged.count) merged, last \(Formatters.ago(latest))"
+    }
+
     // ○ = open (pending circle), ⌥ = merged (two branches converging).
     // Unicode glyphs required; SF Symbols don't render in MenuBarExtra labels.
     func menuBarSegment() -> Text? {
@@ -189,90 +205,142 @@ final class PullRequestExtension: BurnExtension {
     }
 }
 
-enum PRPeriod { case today, week, month }
+enum PRPeriod: Hashable { case today, week, month }
 
 struct PullRequestTabView: View {
     let ext: PullRequestExtension
 
-    @Environment(\.openBurnSettings) private var openSettings
-    @Environment(\.burnTabBarVisible) private var tabBarVisible
-    @State private var selectedPeriod: PRPeriod = .today
+    @State private var selectedPeriod: PRPeriod = .week
 
     var body: some View {
         VStack(spacing: 0) {
-            if !tabBarVisible {
-                header
-                Divider()
-            }
             if let error = ext.errorMessage {
-                errorBanner(error)
+                banner(error, symbol: "exclamationmark.triangle", color: Ember.accentDeep)
             }
             if ext.truncated {
-                warningBanner("Hit a host's result cap — counts may be capped.")
+                banner("Hit a host's result cap, so counts may be capped.", symbol: "exclamationmark.circle", color: Ember.accent)
             }
-            cards
-            Divider()
-            prList
+            hero
+            costTrack
+            listSection
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var header: some View {
-        HStack {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.body)
-                .foregroundStyle(.secondary)
-            Text("PRs").font(.headline)
-            Spacer()
-            Button {
-                openSettings()
-            } label: {
-                Image(systemName: "gear").foregroundStyle(.secondary)
+    // MARK: - Hero
+
+    @ViewBuilder
+    private var hero: some View {
+        let merged = mergedCount
+        if let avg = periodAverage {
+            EmberHero(cost: avg) { heroCaption }
+        } else {
+            EmberHero(primary: "\(merged)", secondary: nil) { heroCaption }
+        }
+    }
+
+    private var heroCaption: some View {
+        Group {
+            if periodAverage != nil {
+                Text("per shipped PR \(periodLabel) · ")
+                    + Text("\(mergedCount)").bold().foregroundColor(Ember.text(0.9))
+                    + Text(" merged, ")
+                    + Text("\(openCount)").bold().foregroundColor(Ember.text(0.9))
+                    + Text(" open")
+            } else {
+                Text("merged \(periodLabel) · nothing to divide cost into yet")
             }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
     }
 
-    private func errorBanner(_ error: String) -> some View {
-        Label(error, systemImage: "exclamationmark.triangle")
-            .font(.caption2)
-            .foregroundStyle(.red)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func warningBanner(_ message: String) -> some View {
-        Label(message, systemImage: "exclamationmark.circle")
-            .font(.caption2)
-            .foregroundStyle(.orange)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var cards: some View {
-        HStack(spacing: 8) {
-            periodCard(.today, label: "Today", open: ext.todayOpenCount, merged: ext.todayMergedCount, avg: ext.avgCostPerPR)
-            periodCard(.week,  label: "Week",  open: ext.weekOpenCount,  merged: ext.weekMergedCount,  avg: ext.avgCostPerPRWeek)
-            periodCard(.month, label: "Month", open: ext.monthOpenCount, merged: ext.monthMergedCount, avg: ext.avgCostPerPRMonth)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
-    private func periodCard(_ period: PRPeriod, label: String, open: Int, merged: Int, avg: Double?) -> some View {
-        StatCard(
-            label: label,
-            value: "○\(open)  ⌥\(merged)",
-            subtitle: avg.map { "\(String(format: "$%.0f", $0)) / PR" } ?? "— / PR",
-            isSelected: selectedPeriod == period,
-            onTap: { selectedPeriod = period }
+    /// Period average against the month average, so a hot week reads as hot.
+    @ViewBuilder
+    private var costTrack: some View {
+        let current = periodAverage ?? 0
+        let baseline = ext.avgCostPerPRMonth ?? 0
+        let scale = max(current, baseline) * 1.25
+        EmberTrack(
+            fill: scale > 0 ? current / scale : 0,
+            tick: scale > 0 && baseline > 0 ? baseline / scale : nil,
+            leading: "\(periodLabel) \(Formatters.costRounded(current))",
+            trailing: baseline > 0 ? "month average \(Formatters.costRounded(baseline))" : ""
         )
+        .padding(.top, 16)
+        .padding(.bottom, 18)
     }
+
+    // MARK: - List
+
+    private var listSection: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Pull requests")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .tracking(1.0)
+                    .foregroundStyle(Ember.label)
+                Spacer()
+                EmberSegmented(
+                    options: [("Today", PRPeriod.today), ("Week", .week), ("Month", .month)],
+                    selection: $selectedPeriod
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 6)
+
+            prList
+        }
+        .overlay(alignment: .top) { Rectangle().fill(Ember.hairline).frame(height: 1) }
+    }
+
+    @ViewBuilder
+    private var prList: some View {
+        let prs = filteredPRs
+        if prs.isEmpty {
+            Text(emptyMessage)
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.caption)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+        } else if prs.count > 4 {
+            ScrollView {
+                rows(prs)
+            }
+            .frame(maxHeight: 176)
+            .padding(.bottom, 4)
+        } else {
+            rows(prs)
+                .padding(.bottom, 4)
+        }
+    }
+
+    private func rows(_ prs: [PullRequest]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(prs.enumerated()), id: \.element.id) { idx, pr in
+                PRRow(pr: pr)
+                if idx < prs.count - 1 {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.06))
+                        .frame(height: 1)
+                        .padding(.leading, 33)
+                }
+            }
+        }
+    }
+
+    private func banner(_ text: String, symbol: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+            Text(text).lineLimit(2)
+        }
+        .font(.system(size: 10.5))
+        .foregroundStyle(color)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    // MARK: - Period
 
     private var filteredPRs: [PullRequest] {
         switch selectedPeriod {
@@ -282,41 +350,7 @@ struct PullRequestTabView: View {
         }
     }
 
-    private var emptyPeriodLabel: String {
-        switch selectedPeriod {
-        case .today: return "today"
-        case .week:  return "this week"
-        case .month: return "this month"
-        }
-    }
-
-    @ViewBuilder
-    private var prList: some View {
-        let prs = filteredPRs
-        if prs.isEmpty {
-            Text(emptyMessage)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 16)
-        } else {
-            let costNote = activeAvg.map { Formatters.cost($0) }
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(prs.enumerated()), id: \.element.id) { idx, pr in
-                        PRRow(pr: pr, costNote: costNote)
-                        if idx < prs.count - 1 {
-                            Divider()
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 180)
-            .padding(.vertical, 2)
-        }
-    }
-
-    private var activeAvg: Double? {
+    private var periodAverage: Double? {
         switch selectedPeriod {
         case .today: return ext.avgCostPerPR
         case .week:  return ext.avgCostPerPRWeek
@@ -324,17 +358,38 @@ struct PullRequestTabView: View {
         }
     }
 
-    private var emptyMessage: String {
-        if ext.lastRefresh == nil && ext.isLoading {
-            return "Loading…"
+    private var mergedCount: Int {
+        switch selectedPeriod {
+        case .today: return ext.todayMergedCount
+        case .week:  return ext.weekMergedCount
+        case .month: return ext.monthMergedCount
         }
-        return "No PRs \(emptyPeriodLabel)"
+    }
+
+    private var openCount: Int {
+        switch selectedPeriod {
+        case .today: return ext.todayOpenCount
+        case .week:  return ext.weekOpenCount
+        case .month: return ext.monthOpenCount
+        }
+    }
+
+    private var periodLabel: String {
+        switch selectedPeriod {
+        case .today: return "today"
+        case .week:  return "this week"
+        case .month: return "this month"
+        }
+    }
+
+    private var emptyMessage: String {
+        if ext.lastRefresh == nil && ext.isLoading { return "Loading…" }
+        return "No PRs \(periodLabel)"
     }
 }
 
 private struct PRRow: View {
     let pr: PullRequest
-    let costNote: String?
 
     var body: some View {
         Button {
@@ -342,41 +397,51 @@ private struct PRRow: View {
                 NSWorkspace.shared.open(url)
             }
         } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(pr.isMerged ? Color.purple : Color.green)
-                    .frame(width: 6, height: 6)
+            HStack(spacing: 10) {
+                dot
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title)
-                        .font(.caption)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white)
                         .lineLimit(1)
-                    HStack(spacing: 6) {
-                        Text(pr.repository.nameWithOwner)
-                            .lineLimit(1)
-                        if let hostLabel = pr.hostLabel {
-                            Text("· \(hostLabel)")
-                                .lineLimit(1)
-                        }
-                        if let costNote {
-                            Text("· \(costNote)")
-                                .foregroundStyle(.quaternary)
-                        }
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    Text(subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Ember.label)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "arrow.up.right.square")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Ember.text(0.3))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
+    }
+
+    @ViewBuilder
+    private var dot: some View {
+        if pr.isMerged {
+            Circle().fill(Ember.accent).frame(width: 7, height: 7)
+        } else {
+            Circle()
+                .strokeBorder(Ember.accent.opacity(0.75), lineWidth: 1.5)
+                .frame(width: 7, height: 7)
+        }
+    }
+
+    private var subtitle: String {
+        var parts = [pr.repository.nameWithOwner]
+        if let host = pr.hostLabel { parts.append(host) }
+        if let merged = pr.mergedAt {
+            parts.append(Formatters.ago(merged))
+        } else {
+            parts.append("open \(Formatters.ago(pr.createdAt))")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -389,8 +454,8 @@ private struct PullRequestSettingsView: View {
     @FocusState private var hostFocused: Bool
 
     var body: some View {
-        VStack(spacing: 6) {
-            field(label: "Orgs") {
+        EmberConfigCard {
+            EmberFieldRow(label: "Orgs") {
                 TextField("all", text: $input)
                     .focused($focused)
                     .onAppear { input = ext.owners.joined(separator: ", ") }
@@ -399,7 +464,7 @@ private struct PullRequestSettingsView: View {
                         if !isFocused { commitOwners() }
                     }
             }
-            field(label: "Forgejo") {
+            EmberFieldRow(label: "Forgejo") {
                 TextField("git.example.com", text: $hostInput)
                     .focused($hostFocused)
                     .onAppear { hostInput = ext.forgejoHost }
@@ -408,21 +473,20 @@ private struct PullRequestSettingsView: View {
                         if !isFocused { commitHost() }
                     }
             }
-            field(label: "Token") {
-                SecureField(ext.hasForgejoToken ? "stored" : "read:issue token", text: $tokenInput)
-                    .onSubmit(commitToken)
+            if ext.hasForgejoToken, tokenInput.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Token")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Ember.caption)
+                        .frame(width: 58, alignment: .leading)
+                    EmberStoredBadge(text: "In Keychain")
+                }
+            } else {
+                EmberFieldRow(label: "Token") {
+                    SecureField("read:issue token", text: $tokenInput)
+                        .onSubmit(commitToken)
+                }
             }
-        }
-    }
-
-    private func field<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            Text(label).font(.caption)
-            Spacer()
-            content()
-                .textFieldStyle(.roundedBorder)
-                .font(.caption2)
-                .frame(width: 130)
         }
     }
 

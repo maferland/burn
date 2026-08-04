@@ -13,10 +13,22 @@ protocol BurnExtension: AnyObject {
     func popoverTab() -> AnyView
 
     func settingsView() -> AnyView?
+
+    /// Icon shown in the popover tab strip.
+    var tabGlyph: TabGlyph { get }
+
+    /// One sentence of live state for the popover header, next to the pulse dot.
+    func statusLine() -> String?
+
+    /// Second line under the extension's name in settings.
+    var settingsSubtitle: String? { get }
 }
 
 extension BurnExtension {
     func settingsView() -> AnyView? { nil }
+    var tabGlyph: TabGlyph { .text(displayName) }
+    func statusLine() -> String? { nil }
+    var settingsSubtitle: String? { nil }
 }
 
 private struct OpenBurnSettingsKey: EnvironmentKey {

@@ -13,8 +13,21 @@ final class CodexExtension: BurnExtension {
         self.settings = settings
     }
 
+    var tabGlyph: TabGlyph { .symbol("chevron.left.forwardslash.chevron.right") }
+
+    var settingsSubtitle: String? { "~/.codex/sessions" }
+
     func refresh() {
         service.refresh()
+    }
+
+    func statusLine() -> String? {
+        guard !service.response.isEmpty || service.response.rateLimits != nil else { return nil }
+        if let limits = service.response.rateLimits, let primary = limits.primary {
+            let plan = limits.planType.map { $0.capitalized + " · " } ?? ""
+            return "\(plan)\(Int(primary.usedPercent.rounded()))% of 5-hour window"
+        }
+        return "~\(Formatters.costRounded(service.response.todayCost)) today, estimated"
     }
 
     func menuBarSegment() -> Text? {
@@ -28,91 +41,150 @@ final class CodexExtension: BurnExtension {
     }
 
     func popoverTab() -> AnyView {
-        AnyView(CodexDashboardView(service: service))
+        AnyView(CodexDashboardView(service: service, settings: settings))
     }
 }
 
-/// Placeholder layout pending the Codex tab design; deliberately plain.
-private struct CodexDashboardView: View {
+struct CodexDashboardView: View {
     let service: CodexUsageService
+    let settings: SettingsStore
+
+    @State private var selectedDayId: String?
+
+    private var response: CodexUsageResponse { service.response }
+
+    private var days: [CodexDailyUsage] { response.last7Days() }
+
+    private var selectedDay: CodexDailyUsage? {
+        if let id = selectedDayId, let day = days.first(where: { $0.id == id }) { return day }
+        return days.last
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if !service.isInstalled {
-                message("Codex CLI not found", detail: "Install Codex to track its usage here.")
-            } else if service.response.isEmpty {
-                message("No Codex sessions yet", detail: "Run Codex once and refresh.")
+                EmberEmptyState(
+                    title: "Codex CLI not found",
+                    detail: "Nothing at ~/.codex yet. Install Codex and this tab fills in."
+                )
+            } else if response.isEmpty && response.rateLimits == nil {
+                EmberEmptyState(
+                    title: "No Codex sessions yet",
+                    detail: "Run Codex once, then refresh. Usage comes from its rollout logs."
+                )
             } else {
                 hero
-                Divider()
+                quotaTrack
                 quotaSection
-                totalsSection
+                modelSection
+                contextStrip
             }
         }
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: - Hero
+
     private var hero: some View {
-        VStack(spacing: 4) {
-            Text("~" + Formatters.cost(service.response.todayCost))
-                .font(.system(size: 36, weight: .bold, design: .rounded))
-            Text("Estimated at API rates")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Text("Today")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        EmberHero(cost: selectedDay?.estimatedCost ?? 0, prefix: "~") {
+            let label = selectedDay.map { Formatters.dayLabel($0.date).lowercased() } ?? "today"
+            Text("\(label) · estimated at API rates")
         }
-        .padding(.vertical, 12)
+    }
+
+    /// The 5-hour rolling window gets Ember's pace track: it's the number that decides whether Codex stops.
+    @ViewBuilder
+    private var quotaTrack: some View {
+        if let primary = response.rateLimits?.primary {
+            EmberTrack(
+                fill: primary.usedPercent / 100,
+                tick: nil,
+                leading: "5-hour window \(Int(primary.usedPercent.rounded()))%",
+                trailing: primary.resetsAt.map(Formatters.resetLabel) ?? ""
+            )
+            .padding(.top, 16)
+            .padding(.bottom, 18)
+        } else {
+            EmberNote(text: "No quota snapshot yet. Codex only writes one while it runs.")
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 16)
+        }
     }
 
     @ViewBuilder
     private var quotaSection: some View {
-        if let limits = service.response.rateLimits {
-            VStack(alignment: .leading, spacing: 6) {
-                quotaRow("5-hour window", limits.primary)
-                quotaRow("Weekly", limits.secondary)
-                Text("As of \(Formatters.relativeTime(limits.capturedAt))")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+        if let limits = response.rateLimits {
+            EmberSection(title: "Quota") {
+                VStack(spacing: 10) {
+                    if let weekly = limits.secondary {
+                        EmberBarRow(
+                            label: "Weekly",
+                            fraction: weekly.usedPercent / 100,
+                            value: "\(Int(weekly.usedPercent.rounded()))%",
+                            emphasis: 0.7
+                        )
+                    }
+                }
+                EmberNote(text: quotaNote(limits))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            Divider()
         }
     }
+
+    private func quotaNote(_ limits: CodexRateLimits) -> String {
+        var parts = ["as of \(Formatters.ago(limits.capturedAt))"]
+        if let weekly = limits.secondary?.resetsAt {
+            parts.append(Formatters.resetLabel(weekly))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    // MARK: - Models
 
     @ViewBuilder
-    private func quotaRow(_ label: String, _ window: CodexRateLimitWindow?) -> some View {
-        if let window {
-            HStack {
-                Text(label).font(.caption)
-                Spacer()
-                Text(String(format: "%.0f%%", window.usedPercent))
-                    .font(.caption.weight(.semibold))
+    private var modelSection: some View {
+        if let day = selectedDay, !day.modelBreakdowns.isEmpty {
+            let ranked = day.modelBreakdowns.sorted { $0.estimatedCost > $1.estimatedCost }
+            let leader = ranked.first?.estimatedCost ?? 0
+            EmberSection(title: "By model", trailing: cacheNote(for: day)) {
+                VStack(spacing: 10) {
+                    ForEach(Array(ranked.enumerated()), id: \.element.modelName) { index, model in
+                        EmberBarRow(
+                            label: Formatters.codexModelLabel(model.modelName),
+                            fraction: leader > 0 ? model.estimatedCost / leader : 0,
+                            value: "~" + Formatters.cost(model.estimatedCost),
+                            emphasis: index == 0 ? 1.0 : (index == 1 ? 0.55 : 0.4)
+                        )
+                    }
+                }
             }
         }
     }
 
-    private var totalsSection: some View {
-        HStack(spacing: 8) {
-            StatCard(label: "This Week", value: "~" + Formatters.cost(service.response.cost(inLast: 7)))
-            StatCard(label: "This Month", value: "~" + Formatters.cost(service.response.monthCost()))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+    private func cacheNote(for day: CodexDailyUsage) -> String? {
+        guard day.tokens.inputTokens > 0 else { return nil }
+        let share = Int((Double(day.tokens.cachedInputTokens) / Double(day.tokens.inputTokens) * 100).rounded())
+        return "\(share)% cached input"
     }
 
-    private func message(_ title: String, detail: String) -> some View {
-        VStack(spacing: 6) {
-            Text(title).font(.caption.weight(.semibold))
-            Text(detail)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+    // MARK: - Context strip
+
+    private var contextStrip: some View {
+        let maxCost = days.map(\.estimatedCost).max() ?? 0
+        return VStack(spacing: 0) {
+            EmberContextStrip(
+                bars: days.map { .init(id: $0.id, fraction: maxCost > 0 ? $0.estimatedCost / maxCost : 0) },
+                selectedId: selectedDay?.id,
+                leading: .init(label: "Last 7 days", value: "~" + Formatters.costRounded(response.cost(inLast: 7))),
+                trailing: .init(label: Formatters.monthLabel(Date()), value: "~" + Formatters.costRounded(response.monthCost())),
+                onSelect: { selectedDayId = $0 },
+                onOpen: { _ in }
+            )
+            if response.skippedCompressedFiles > 0 {
+                EmberNote(text: "\(response.skippedCompressedFiles) archived sessions are compressed and not counted.")
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .padding(.horizontal, 14)
     }
 }

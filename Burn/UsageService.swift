@@ -53,6 +53,16 @@ final class UsageService: @unchecked Sendable {
 
     // MARK: - Disk cache
 
+    /// Mean of the last 30 days with spend, today excluded so it stays a baseline.
+    var typicalDayCost: Double {
+        let today = UsageData.dateString(from: Date())
+        let past = (lastResponse?.daily ?? [])
+            .filter { $0.date != today && $0.totalCost > 0 }
+            .suffix(30)
+        guard !past.isEmpty else { return 0 }
+        return past.reduce(0) { $0 + $1.totalCost } / Double(past.count)
+    }
+
     func usageData(weekOffset: Int) -> UsageData {
         guard let response = lastResponse else { return .empty }
         return UsageData.from(response: response, weekOffset: weekOffset)
