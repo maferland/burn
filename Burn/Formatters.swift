@@ -38,6 +38,18 @@ enum Formatters {
         return "resets \(weekdayShort.string(from: date))"
     }
 
+    static func percent(_ value: Double) -> String {
+        "\(Int(value.rounded()))%"
+    }
+
+    /// Says "billed" so it can't be mistaken for the Usage tab, which prices local logs at API rates.
+    static func spendLine(_ spend: SpendSnapshot) -> String {
+        guard let limit = spend.limitDollars else {
+            return "\(costRounded(spend.usedDollars)) billed this month"
+        }
+        return "\(costRounded(spend.usedDollars)) of \(costRounded(limit)) billed this month"
+    }
+
     /// "18% under typical" / "42% over typical", nil when there's no baseline.
     static func comparison(value: Double, baseline: Double) -> String? {
         guard baseline > 0, value > 0 else { return nil }

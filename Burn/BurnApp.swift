@@ -52,10 +52,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
     lazy var service = UsageService(settings: settings)
     lazy var codexService = CodexUsageService()
+    // Codex only reports quota while it runs, so Limits reuses the snapshot the Codex tab already parsed.
+    lazy var limitsService = LimitsService(rolloutLimits: { [weak self] in self?.codexService.response.rateLimits })
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
         r.register(UsageExtension(service: service, settings: settings))
         r.register(CodexExtension(service: codexService, settings: settings))
+        r.register(LimitsExtension(service: limitsService))
         r.register(PullRequestExtension(usageService: service))
         return r
     }()
