@@ -41,7 +41,6 @@ enum ScreenshotGenerator {
         codexService.response = mockCodexUsage()
         let registry = ExtensionRegistry()
         registry.register(UsageExtension(service: service, codexService: codexService, settings: settings))
-        registry.register(CodexExtension(service: codexService, settings: settings))
         let limitsService = LimitsService(
             store: LimitsAccountStore(detect: { [] }),
             cacheFile: FileManager.default.temporaryDirectory.appendingPathComponent("burn-shot-limits.json")
