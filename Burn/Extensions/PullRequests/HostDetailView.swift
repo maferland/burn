@@ -2,27 +2,23 @@ import SwiftUI
 
 /// Add or edit one forge. The token is write-only: it goes to the Keychain and is never read back.
 struct HostDetailView: View {
-    let ext: PullRequestExtension
-    let isNew: Bool
-    let onClose: () -> Void
+    @State private var editor: HostEditor
+    private let onClose: () -> Void
 
-    @State private var config: GitHostConfig
-    @State private var tokenInput = ""
-    @State private var replacingToken = false
-    @State private var hostError: String?
-    @State private var confirmingRemove = false
-    @State private var isSaving = false
     @FocusState private var hostFocused: Bool
 
     init(ext: PullRequestExtension, config: GitHostConfig, isNew: Bool, onClose: @escaping () -> Void) {
-        self.ext = ext
-        self.isNew = isNew
         self.onClose = onClose
-        _config = State(initialValue: config)
-        _replacingToken = State(initialValue: isNew)
+        _editor = State(initialValue: HostEditor(
+            store: ext.hostStore,
+            config: config,
+            isNew: isNew,
+            onCommit: { [weak ext] savedId in
+                ext?.lastSavedHostId = savedId
+                ext?.refresh()
+            }
+        ))
     }
-
-    private var store: GitHostStore { ext.hostStore }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -38,7 +34,7 @@ struct HostDetailView: View {
 
     private var header: some View {
         HStack(spacing: 9) {
-            Button(action: close) {
+            Button(action: onClose) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Ember.accent.opacity(0.9))
@@ -50,13 +46,13 @@ struct HostDetailView: View {
             .keyboardShortcut(.escape, modifiers: [])
             .pointingHandCursor()
 
-            Text(isNew ? "Add host" : config.label)
+            Text(editor.isNew ? "Add host" : editor.config.label)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            if !isNew {
+            if !editor.isNew {
                 removeButton
             }
         }
@@ -65,27 +61,24 @@ struct HostDetailView: View {
         .padding(.bottom, 14)
     }
 
-    /// Inline confirm rather than a system alert: an alert over a popover this size reads as a crash.
     private var removeButton: some View {
         Button {
-            if confirmingRemove {
-                store.remove(config.id)
-                ext.refresh()
-                close()
+            if editor.removeTapped() {
+                onClose()
             } else {
-                withAnimation(.easeOut(duration: 0.12)) { confirmingRemove = true }
                 Task {
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    withAnimation(.easeOut(duration: 0.15)) { confirmingRemove = false }
+                    withAnimation(.easeOut(duration: 0.15)) { editor.cancelRemove() }
                 }
             }
         } label: {
-            Text(confirmingRemove ? "Confirm remove?" : "Remove")
+            Text(editor.confirmingRemove ? "Confirm remove?" : "Remove")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(confirmingRemove ? Ember.dangerBright : Ember.danger)
+                .foregroundStyle(editor.confirmingRemove ? Ember.dangerBright : Ember.danger)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.12), value: editor.confirmingRemove)
         .pointingHandCursor()
     }
 
@@ -95,22 +88,22 @@ struct HostDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             field(
                 title: "Host URL",
-                caption: hostError ?? "Any GitHub-compatible host — Forgejo, Gitea, GHES, github.com.",
-                isError: hostError != nil
+                caption: editor.hostError ?? "Any GitHub-compatible host — Forgejo, Gitea, GHES, github.com.",
+                isError: editor.hostError != nil
             ) {
-                TextField("git.example.com", text: $config.host)
+                TextField("git.example.com", text: $editor.config.host)
                     .focused($hostFocused)
                     .onChange(of: hostFocused) { _, focused in
-                        if !focused { validateHost() }
+                        if !focused { editor.validateHost() }
                     }
-                    .onChange(of: config.host) { _, host in
-                        config.kind = GitHostConfig.isGitHubDotCom(host) ? .github : .selfHosted
-                        hostError = nil
-                    }
+                    .onChange(of: editor.config.host) { _, _ in editor.hostDidChange() }
             }
 
-            field(title: "Org or user", caption: config.usesGitHubCLI ? "Leave empty for every org." : nil) {
-                TextField(config.usesGitHubCLI ? "all" : "acme", text: $config.org)
+            field(
+                title: "Org or user",
+                caption: editor.config.usesGitHubCLI ? "Leave empty for every org." : nil
+            ) {
+                TextField(editor.config.usesGitHubCLI ? "all" : "acme", text: $editor.config.org)
             }
 
             tokenSection
@@ -120,54 +113,51 @@ struct HostDetailView: View {
 
     @ViewBuilder
     private var tokenSection: some View {
-        if config.usesGitHubCLI {
+        switch editor.tokenState {
+        case .cliManaged:
             labelled("Access token") {
-                HStack(spacing: 6) {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Ember.accent)
-                    Text("Authenticated via gh CLI")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Ember.caption)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Ember.accent.opacity(0.18), lineWidth: 1)
-                )
+                pill(icon: "terminal", text: "Authenticated via gh CLI", filled: false)
             }
-        } else if store.hasToken(config), !replacingToken {
+        case .saved:
             labelled("Access token") {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Ember.accent)
-                    Text("Saved in Keychain")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Ember.caption)
-                    Spacer(minLength: 0)
-                    Button("Replace") { replacingToken = true }
+                pill(icon: "checkmark", text: "Saved in Keychain", filled: true) {
+                    Button("Replace") { editor.beginReplacingToken() }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Ember.accent)
                         .pointingHandCursor()
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background(Ember.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Ember.accent.opacity(0.3), lineWidth: 1)
-                )
             }
-        } else {
+        case .entering:
             field(title: "Access token", caption: "Needs the read:issue scope.") {
-                SecureField("paste token", text: $tokenInput)
+                SecureField("paste token", text: $editor.tokenInput)
             }
         }
+    }
+
+    private func pill(
+        icon: String, text: String, filled: Bool, @ViewBuilder trailing: () -> some View = { EmptyView() }
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: icon == "checkmark" ? 9 : 10, weight: .bold))
+                .foregroundStyle(Ember.accent)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(Ember.caption)
+            Spacer(minLength: 0)
+            trailing()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(
+            filled ? Ember.accent.opacity(0.08) : Color.black.opacity(0.3),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Ember.accent.opacity(filled ? 0.3 : 0.18), lineWidth: 1)
+        )
     }
 
     private func field(
@@ -214,62 +204,29 @@ struct HostDetailView: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Spacer(minLength: 0)
-            Button("Cancel", action: close)
+            Button("Cancel", action: onClose)
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Ember.caption)
                 .pointingHandCursor()
 
-            Button(action: save) {
-                Group {
-                    if isSaving {
-                        ProgressView().controlSize(.small).scaleEffect(0.6)
-                    } else {
-                        Text("Save").font(.system(size: 12, weight: .bold))
-                    }
-                }
-                .foregroundStyle(Ember.onAccent)
-                .frame(width: 62, height: 26)
-                .background(Ember.accent, in: RoundedRectangle(cornerRadius: 7))
-                .contentShape(Rectangle())
+            Button {
+                if editor.save() { onClose() }
+            } label: {
+                Text("Save")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Ember.onAccent)
+                    .frame(width: 62, height: 26)
+                    .background(Ember.accent, in: RoundedRectangle(cornerRadius: 7))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!config.isSaveable || isSaving)
-            .opacity(config.isSaveable ? 1 : 0.4)
+            .disabled(!editor.canSave)
+            .opacity(editor.canSave ? 1 : 0.4)
             .pointingHandCursor()
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 16)
-    }
-
-    // MARK: - Actions
-
-    private func validateHost() {
-        let trimmed = config.host.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        let parsed = URL(string: withScheme)
-        hostError = (parsed?.host?.contains(".") ?? false) ? nil : "That doesn't look like a host name."
-    }
-
-    private func save() {
-        validateHost()
-        guard hostError == nil, config.isSaveable else { return }
-        isSaving = true
-        config.host = config.host.trimmingCharacters(in: .whitespaces)
-        config.org = config.org.trimmingCharacters(in: .whitespaces)
-        store.upsert(config)
-        if !config.usesGitHubCLI, !tokenInput.isEmpty {
-            store.setToken(tokenInput, for: config)
-        }
-        ext.lastSavedHostId = config.id
-        ext.refresh()
-        isSaving = false
-        close()
-    }
-
-    private func close() {
-        onClose()
     }
 }

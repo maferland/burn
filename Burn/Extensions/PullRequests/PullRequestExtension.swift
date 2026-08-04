@@ -28,24 +28,13 @@ final class PullRequestExtension: BurnExtension {
         self.hostStore = hostStore ?? GitHostStore()
     }
 
-    /// Each host carries its own credentials, so one bad token can only take out its own row.
+    /// Tokens are read inside the fetch, never here: a keychain prompt on the main actor freezes the UI.
     private func plans() -> [HostFetchPlan] {
         hostStore.hosts.map { host in
-            guard !host.usesGitHubCLI else { return HostFetchPlan(host: host, token: nil, issue: nil) }
-            switch hostStore.token(for: host) {
-            case .value(let token):
-                return HostFetchPlan(host: host, token: token, issue: nil)
-            case .missing:
-                return HostFetchPlan(
-                    host: host, token: nil,
-                    issue: "No token stored for \(host.label). Add one in settings."
-                )
-            case .refused(let status):
-                return HostFetchPlan(
-                    host: host, token: nil,
-                    issue: "The keychain refused the \(host.label) token (\(status)). Re-enter it in settings."
-                )
-            }
+            HostFetchPlan(
+                host: host,
+                legacyService: host.adoptsLegacyToken ? hostStore.legacyTokenService : nil
+            )
         }
     }
 
@@ -74,8 +63,11 @@ final class PullRequestExtension: BurnExtension {
             let fetched = results.compactMap(\.result)
             self.prs = fetched.flatMap(\.prs).sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
             self.truncated = fetched.contains(where: \.truncated)
-            let errors = plans.compactMap(\.issue) + results.compactMap(\.errorMessage)
+            let errors = results.compactMap(\.errorMessage)
             self.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+            for id in results.compactMap(\.adoptedHostId) {
+                self.hostStore.clearLegacyAdoption(id)
+            }
             self.lastRefresh = Date()
             self.isLoading = false
         }
@@ -83,24 +75,50 @@ final class PullRequestExtension: BurnExtension {
 
     private struct HostFetchPlan: Sendable {
         let host: GitHostConfig
-        let token: String?
-        let issue: String?
+        let legacyService: String?
     }
 
     private nonisolated static func fetch(_ plan: HostFetchPlan, since: Date) async -> Attempt {
-        await attempt {
-            if plan.host.usesGitHubCLI {
-                return try await GitHubPRService.fetchAll(since: since, owners: plan.host.owners)
+        if plan.host.usesGitHubCLI {
+            return await attempt {
+                try await GitHubPRService.fetchAll(since: since, owners: plan.host.owners)
             }
-            guard let token = plan.token,
-                  let config = ForgejoConfig(host: plan.host.host, token: token) else { return .empty }
-            return try await ForgejoPRService.fetchAll(config: config, since: since, owners: plan.host.owners)
+        }
+
+        let lookup = resolveToken(plan)
+        guard let token = lookup.token, let config = ForgejoConfig(host: plan.host.host, token: token) else {
+            return Attempt(result: nil, errorMessage: lookup.issue, adoptedHostId: nil)
+        }
+        var attempt = await attempt {
+            try await ForgejoPRService.fetchAll(config: config, since: since, owners: plan.host.owners)
+        }
+        attempt.adoptedHostId = lookup.adopted ? plan.host.id : nil
+        return attempt
+    }
+
+    /// Runs off the main actor so the one-time authorization dialog can't block the popover.
+    private nonisolated static func resolveToken(
+        _ plan: HostFetchPlan
+    ) -> (token: String?, issue: String?, adopted: Bool) {
+        switch KeychainStore.read(service: plan.host.tokenService) {
+        case .value(let token):
+            return (token, nil, false)
+        case .refused(let status):
+            return (nil, "The keychain refused the \(plan.host.label) token (\(status)). Re-enter it in settings.", false)
+        case .missing:
+            guard let legacyService = plan.legacyService,
+                  case .value(let token) = KeychainStore.read(service: legacyService) else {
+                return (nil, "No token stored for \(plan.host.label). Add one in settings.", false)
+            }
+            KeychainStore.write(token, service: plan.host.tokenService)
+            return (token, nil, true)
         }
     }
 
-    private struct Attempt {
+    private struct Attempt: Sendable {
         let result: PRFetchResult?
         let errorMessage: String?
+        var adoptedHostId: UUID?
     }
 
     private nonisolated static func attempt(_ work: () async throws -> PRFetchResult) async -> Attempt {

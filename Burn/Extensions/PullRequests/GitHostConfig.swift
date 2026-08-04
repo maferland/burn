@@ -75,7 +75,15 @@ final class GitHostStore {
 
     private let defaults: UserDefaults
     private let readToken: (String) -> KeychainStore.ReadResult
-    private let legacyTokenService: String
+    let legacyTokenService: String
+
+    func clearLegacyAdoption(_ id: UUID) {
+        guard let index = hosts.firstIndex(where: { $0.id == id }), hosts[index].adoptsLegacyToken else {
+            return
+        }
+        hosts[index].adoptsLegacyToken = false
+        persist()
+    }
 
     func upsert(_ config: GitHostConfig) {
         if let index = hosts.firstIndex(where: { $0.id == config.id }) {
