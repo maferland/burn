@@ -12,6 +12,7 @@ struct LimitsDashboardView: View {
         VStack(spacing: 0) {
             if !response.isEmpty {
                 hero
+                warningRow
                 ForEach(response.accounts) { snapshot in
                     section(for: snapshot)
                 }
@@ -82,6 +83,36 @@ struct LimitsDashboardView: View {
         response.accounts.compactMap(\.failure).first?.message
     }
 
+    /// Only shows once something is genuinely close to stopping work.
+    @ViewBuilder
+    private var warningRow: some View {
+        let strained = response.accountsNearCap
+        if !strained.isEmpty {
+            HStack(spacing: 7) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Ember.accentDeep)
+                Text(warningText(strained))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Ember.text(0.75))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Ember.accentDeep.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+        }
+    }
+
+    private func warningText(_ strained: [AccountSnapshot]) -> String {
+        guard let first = strained.first, let window = first.tightestWindow else { return "" }
+        let rest = strained.count - 1
+        let subject = rest > 0 ? "\(first.account.label) +\(rest) more" : first.account.label
+        return "\(subject) is \(Formatters.percent(window.effectiveUsedPercent)) through its \(window.kind.phrase)"
+    }
+
     // MARK: - Per account
 
     private func section(for snapshot: AccountSnapshot) -> some View {
@@ -93,7 +124,8 @@ struct LimitsDashboardView: View {
                         label: window.kind.label,
                         fraction: window.remainingPercent / 100,
                         value: Formatters.percent(window.remainingPercent),
-                        emphasis: window.remainingPercent <= 20 ? 0.95 : 0.55
+                        emphasis: window.remainingPercent <= 20 ? 0.95 : 0.55,
+                        color: snapshot.account.provider.accent
                     )
                 }
                 if let spend = snapshot.spend, let fraction = spend.fraction {
@@ -101,7 +133,8 @@ struct LimitsDashboardView: View {
                         label: "Credits",
                         fraction: 1 - fraction,
                         value: Formatters.percent((1 - fraction) * 100),
-                        emphasis: 0.55
+                        emphasis: 0.55,
+                        color: snapshot.account.provider.accent
                     )
                 }
                 if let note = note(for: snapshot) {

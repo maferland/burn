@@ -80,7 +80,7 @@ struct LimitsAccountDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             labelled("Provider") {
                 EmberSegmented(
-                    options: [("Claude", LimitsProvider.claude), ("Codex", .codex)],
+                    options: [("Claude", Provider.claude), ("Codex", .codex)],
                     selection: $editor.provider
                 )
             }

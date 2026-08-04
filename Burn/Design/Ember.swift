@@ -280,6 +280,8 @@ struct EmberBarRow: View {
     let fraction: Double
     let value: String
     let emphasis: Double
+    /// Defaults to amber; the Limits tab passes each provider's own accent.
+    var color: Color = Ember.accent
 
     var body: some View {
         HStack(spacing: 10) {
@@ -293,7 +295,7 @@ struct EmberBarRow: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.white.opacity(0.07))
                     Capsule()
-                        .fill(Ember.accent.opacity(emphasis))
+                        .fill(color.opacity(emphasis))
                         .frame(width: max(2, geo.size.width * min(max(fraction, 0), 1)))
                 }
             }

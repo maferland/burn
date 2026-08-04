@@ -16,7 +16,7 @@ final class LimitsTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func account(_ provider: LimitsProvider = .claude, label: String = "test") -> LimitsAccount {
+    private func account(_ provider: Provider = .claude, label: String = "test") -> LimitsAccount {
         LimitsAccount(provider: provider, label: label, homePath: home.path, isAutoDetected: false)
     }
 
@@ -252,6 +252,31 @@ final class LimitsTests: XCTestCase {
         XCTAssertEqual(response.tightest?.snapshot.account.label, "personal")
         XCTAssertEqual(response.tightest?.window.kind, .week)
         XCTAssertEqual(response.tightest?.window.remainingPercent, 12)
+    }
+
+    func testWarningListsOnlyAccountsPastTheThreshold() {
+        func snapshot(_ label: String, used: Double) -> AccountSnapshot {
+            AccountSnapshot(
+                account: LimitsAccount(
+                    provider: .claude, label: label, homePath: "/tmp/\(label)", isAutoDetected: false
+                ),
+                planLabel: nil,
+                windows: [LimitWindow(kind: .week, usedPercent: used, resetsAt: nil)],
+                spend: nil, capturedAt: Date(), source: .api, failure: nil
+            )
+        }
+        let response = LimitsResponse(accounts: [
+            snapshot("roomy", used: 40),
+            snapshot("edge", used: LimitsResponse.warningThreshold),
+            snapshot("spent", used: 96),
+        ])
+
+        XCTAssertEqual(response.accountsNearCap.map(\.account.label), ["edge", "spent"])
+    }
+
+    func testProviderAccentsAreDistinct() {
+        XCTAssertNotEqual(Provider.claude.accent, Provider.codex.accent)
+        XCTAssertEqual(Provider.claude.accent, Ember.accent)
     }
 
     // MARK: - Service

@@ -4,7 +4,7 @@ import Foundation
 @Observable
 @MainActor
 final class LimitsAccountEditor {
-    var provider: LimitsProvider
+    var provider: Provider
     var label: String
     /// Editing the path clears the error: the caption should not accuse a path they are still typing.
     var homePath: String {

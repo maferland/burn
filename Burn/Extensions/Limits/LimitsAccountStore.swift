@@ -41,7 +41,7 @@ final class LimitsAccountStore {
         return (detect() + manualAccounts).filter { seen.insert($0.id).inserted }
     }
 
-    func add(provider: LimitsProvider, label: String, homePath: String) {
+    func add(provider: Provider, label: String, homePath: String) {
         let trimmedPath = homePath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else { return }
         let home = URL(fileURLWithPath: (trimmedPath as NSString).expandingTildeInPath)
@@ -72,7 +72,7 @@ final class LimitsAccountStore {
 
     /// A directory alone proves nothing: an unsigned-in CLI leaves one behind with only config in it.
     nonisolated static func autoDetected() -> [LimitsAccount] {
-        LimitsProvider.allCases.compactMap { provider in
+        Provider.allCases.compactMap { provider in
             let home = provider.defaultHome
             guard isSignedIn(provider: provider, home: home) else { return nil }
             let identity = identity(provider: provider, home: home, isDefaultHome: true)
@@ -85,7 +85,7 @@ final class LimitsAccountStore {
         }
     }
 
-    nonisolated static func isSignedIn(provider: LimitsProvider, home: URL) -> Bool {
+    nonisolated static func isSignedIn(provider: Provider, home: URL) -> Bool {
         switch provider {
         case .claude:
             if FileManager.default.fileExists(atPath: home.appendingPathComponent(".credentials.json").path) {
@@ -98,7 +98,7 @@ final class LimitsAccountStore {
         }
     }
 
-    nonisolated static func identity(provider: LimitsProvider, home: URL, isDefaultHome: Bool) -> LimitsIdentity {
+    nonisolated static func identity(provider: Provider, home: URL, isDefaultHome: Bool) -> LimitsIdentity {
         switch provider {
         case .claude: return claudeIdentity(home: home, isDefaultHome: isDefaultHome)
         case .codex:  return codexIdentity(home: home)
