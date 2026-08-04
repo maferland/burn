@@ -22,6 +22,9 @@ protocol BurnExtension: AnyObject {
 
     /// Second line under the extension's name in settings.
     var settingsSubtitle: String? { get }
+
+    /// False when there is nothing on this machine to report yet, which keeps the tab out of the way.
+    var isConfigured: Bool { get }
 }
 
 extension BurnExtension {
@@ -29,6 +32,7 @@ extension BurnExtension {
     var tabGlyph: TabGlyph { .text(displayName) }
     func statusLine() -> String? { nil }
     var settingsSubtitle: String? { nil }
+    var isConfigured: Bool { true }
 }
 
 private struct OpenBurnSettingsKey: EnvironmentKey {
@@ -37,6 +41,14 @@ private struct OpenBurnSettingsKey: EnvironmentKey {
 
 private struct BurnTabBarVisibleKey: EnvironmentKey {
     static let defaultValue: Bool = false
+}
+
+private struct BurnPushDetailKey: EnvironmentKey {
+    static let defaultValue: (AnyView) -> Void = { _ in }
+}
+
+private struct BurnPopDetailKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
 }
 
 extension EnvironmentValues {
@@ -49,5 +61,16 @@ extension EnvironmentValues {
     var burnTabBarVisible: Bool {
         get { self[BurnTabBarVisibleKey.self] }
         set { self[BurnTabBarVisibleKey.self] = newValue }
+    }
+
+    /// Pushes a full-width detail screen over the popover body, keeping the utility bar in place.
+    var burnPushDetail: (AnyView) -> Void {
+        get { self[BurnPushDetailKey.self] }
+        set { self[BurnPushDetailKey.self] = newValue }
+    }
+
+    var burnPopDetail: () -> Void {
+        get { self[BurnPopDetailKey.self] }
+        set { self[BurnPopDetailKey.self] = newValue }
     }
 }

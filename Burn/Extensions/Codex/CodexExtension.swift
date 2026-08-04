@@ -15,7 +15,11 @@ final class CodexExtension: BurnExtension {
 
     var tabGlyph: TabGlyph { .symbol("chevron.left.forwardslash.chevron.right") }
 
-    var settingsSubtitle: String? { "~/.codex/sessions" }
+    var isConfigured: Bool { CodexSessionReader.isConfigured }
+
+    var settingsSubtitle: String? {
+        isConfigured ? "~/.codex/sessions" : "Not signed in — run codex once"
+    }
 
     func refresh() {
         service.refresh()

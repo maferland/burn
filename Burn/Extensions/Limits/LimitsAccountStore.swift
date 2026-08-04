@@ -70,11 +70,11 @@ final class LimitsAccountStore {
 
     // MARK: - Detection
 
-    /// A provider is detected when its default home holds something we can read an account out of.
+    /// A directory alone proves nothing: an unsigned-in CLI leaves one behind with only config in it.
     nonisolated static func autoDetected() -> [LimitsAccount] {
         LimitsProvider.allCases.compactMap { provider in
             let home = provider.defaultHome
-            guard FileManager.default.fileExists(atPath: home.path) else { return nil }
+            guard isSignedIn(provider: provider, home: home) else { return nil }
             let identity = identity(provider: provider, home: home, isDefaultHome: true)
             return LimitsAccount(
                 provider: provider,
@@ -82,6 +82,19 @@ final class LimitsAccountStore {
                 homePath: nil,
                 isAutoDetected: true
             )
+        }
+    }
+
+    nonisolated static func isSignedIn(provider: LimitsProvider, home: URL) -> Bool {
+        switch provider {
+        case .claude:
+            if FileManager.default.fileExists(atPath: home.appendingPathComponent(".credentials.json").path) {
+                return true
+            }
+            // The Keychain holds the token, so the profile beside it is the only prompt-free proof.
+            return identity(provider: .claude, home: home, isDefaultHome: true).email != nil
+        case .codex:
+            return CodexSessionReader.isConfigured(home: home)
         }
     }
 

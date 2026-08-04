@@ -12,6 +12,11 @@ enum Ember {
 
     static func text(_ opacity: Double) -> Color { Color.white.opacity(opacity) }
 
+    /// The one place amber gives way: destructive actions and error states.
+    static let danger = Color(red: 1.0, green: 0.412, blue: 0.380)
+    static let dangerBright = Color(red: 1.0, green: 0.541, blue: 0.514)
+    static let onAccent = Color(red: 0.102, green: 0.090, blue: 0.063)
+
     static let label = Color.white.opacity(0.45)
     static let caption = Color.white.opacity(0.5)
     static let strong = Color.white.opacity(0.72)
