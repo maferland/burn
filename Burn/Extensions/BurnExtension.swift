@@ -39,6 +39,14 @@ private struct BurnTabBarVisibleKey: EnvironmentKey {
     static let defaultValue: Bool = false
 }
 
+private struct BurnPushDetailKey: EnvironmentKey {
+    static let defaultValue: (AnyView) -> Void = { _ in }
+}
+
+private struct BurnPopDetailKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var openBurnSettings: () -> Void {
         get { self[OpenBurnSettingsKey.self] }
@@ -49,5 +57,16 @@ extension EnvironmentValues {
     var burnTabBarVisible: Bool {
         get { self[BurnTabBarVisibleKey.self] }
         set { self[BurnTabBarVisibleKey.self] = newValue }
+    }
+
+    /// Pushes a full-width detail screen over the popover body, keeping the utility bar in place.
+    var burnPushDetail: (AnyView) -> Void {
+        get { self[BurnPushDetailKey.self] }
+        set { self[BurnPushDetailKey.self] = newValue }
+    }
+
+    var burnPopDetail: () -> Void {
+        get { self[BurnPopDetailKey.self] }
+        set { self[BurnPopDetailKey.self] = newValue }
     }
 }

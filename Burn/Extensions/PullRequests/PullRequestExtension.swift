@@ -18,56 +18,35 @@ final class PullRequestExtension: BurnExtension {
     var isLoading = false
     var lastRefresh: Date?
 
-    var owners: [String] {
-        didSet { UserDefaults.standard.set(owners, forKey: Self.ownersKey) }
-    }
+    let hostStore: GitHostStore
 
-    var forgejoHost: String {
-        didSet { UserDefaults.standard.set(forgejoHost, forKey: Self.forgejoHostKey) }
-    }
+    /// Set by the detail screen so the list can flash the row that just changed.
+    var lastSavedHostId: UUID?
 
-    private var forgejoToken: String?
-    private var forgejoTokenIssue: String?
-
-    var hasForgejoToken: Bool { forgejoToken != nil }
-
-    init(usageService: UsageService) {
+    init(usageService: UsageService, hostStore: GitHostStore? = nil) {
         self.usageService = usageService
-        self.owners = UserDefaults.standard.array(forKey: Self.ownersKey) as? [String] ?? []
-        self.forgejoHost = UserDefaults.standard.string(forKey: Self.forgejoHostKey) ?? ""
-        loadForgejoToken()
+        self.hostStore = hostStore ?? GitHostStore()
     }
 
-    func setForgejoToken(_ token: String) {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            KeychainStore.delete(service: Self.forgejoTokenService)
-        } else {
-            KeychainStore.write(trimmed, service: Self.forgejoTokenService)
+    /// Each host carries its own credentials, so one bad token can only take out its own row.
+    private func plans() -> [HostFetchPlan] {
+        hostStore.hosts.map { host in
+            guard !host.usesGitHubCLI else { return HostFetchPlan(host: host, token: nil, issue: nil) }
+            switch hostStore.token(for: host) {
+            case .value(let token):
+                return HostFetchPlan(host: host, token: token, issue: nil)
+            case .missing:
+                return HostFetchPlan(
+                    host: host, token: nil,
+                    issue: "No token stored for \(host.label). Add one in settings."
+                )
+            case .refused(let status):
+                return HostFetchPlan(
+                    host: host, token: nil,
+                    issue: "The keychain refused the \(host.label) token (\(status)). Re-enter it in settings."
+                )
+            }
         }
-        loadForgejoToken()
-    }
-
-    /// Read back rather than trusting the write, so a keychain that refuses this build says so.
-    private func loadForgejoToken() {
-        switch KeychainStore.read(service: Self.forgejoTokenService) {
-        case .value(let token):
-            forgejoToken = token
-            forgejoTokenIssue = nil
-        case .missing:
-            forgejoToken = nil
-            forgejoTokenIssue = forgejoHost.isEmpty ? nil : "No token stored for \(forgejoHost). Add one in settings."
-        case .refused(let status):
-            forgejoToken = nil
-            forgejoTokenIssue = forgejoHost.isEmpty
-                ? nil
-                : "The keychain refused the \(forgejoHost) token (\(status)). Re-enter it in settings."
-        }
-    }
-
-    private var forgejoConfig: ForgejoConfig? {
-        guard let forgejoToken else { return nil }
-        return ForgejoConfig(host: forgejoHost, token: forgejoToken)
     }
 
     func refresh() {
@@ -75,32 +54,47 @@ final class PullRequestExtension: BurnExtension {
         isLoading = true
         errorMessage = nil
         // Re-read on every refresh: a token added or rebound since launch shouldn't need a restart.
-        loadForgejoToken()
-        let owners = self.owners
-        let config = forgejoConfig
-        let tokenIssue = forgejoTokenIssue
+        let plans = plans()
         let monthStart = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
         // The rolling 7-day week window can reach into the previous month, so fetch from
         // whichever start is earlier — otherwise weekPRs undercounts near the start of a month.
         let fetchStart = min(monthStart, usageService.usageData.weekStart)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            async let github = Self.attempt { try await GitHubPRService.fetchAll(since: fetchStart, owners: owners) }
-            async let forgejo = Self.attempt {
-                guard let config else { return .empty }
-                return try await ForgejoPRService.fetchAll(config: config, since: fetchStart, owners: owners)
+            let results = await withTaskGroup(of: Attempt.self) { group in
+                for plan in plans {
+                    group.addTask { await Self.fetch(plan, since: fetchStart) }
+                }
+                var collected: [Attempt] = []
+                for await attempt in group { collected.append(attempt) }
+                return collected
             }
-            let (githubResult, forgejoResult) = await (github, forgejo)
-            let results = [githubResult, forgejoResult]
 
-            // One host failing shouldn't blank out the other's PRs.
+            // One host failing shouldn't blank out the others' PRs.
             let fetched = results.compactMap(\.result)
             self.prs = fetched.flatMap(\.prs).sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
             self.truncated = fetched.contains(where: \.truncated)
-            let errors = [tokenIssue].compactMap { $0 } + results.compactMap(\.errorMessage)
+            let errors = plans.compactMap(\.issue) + results.compactMap(\.errorMessage)
             self.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
             self.lastRefresh = Date()
             self.isLoading = false
+        }
+    }
+
+    private struct HostFetchPlan: Sendable {
+        let host: GitHostConfig
+        let token: String?
+        let issue: String?
+    }
+
+    private nonisolated static func fetch(_ plan: HostFetchPlan, since: Date) async -> Attempt {
+        await attempt {
+            if plan.host.usesGitHubCLI {
+                return try await GitHubPRService.fetchAll(since: since, owners: plan.host.owners)
+            }
+            guard let token = plan.token,
+                  let config = ForgejoConfig(host: plan.host.host, token: token) else { return .empty }
+            return try await ForgejoPRService.fetchAll(config: config, since: since, owners: plan.host.owners)
         }
     }
 
@@ -118,7 +112,7 @@ final class PullRequestExtension: BurnExtension {
     }
 
     func settingsView() -> AnyView? {
-        AnyView(PullRequestSettingsView(ext: self))
+        AnyView(HostsListView(ext: self))
     }
 
     // For open PRs: anchor on createdAt. For merged: anchor on mergedAt.
@@ -176,7 +170,8 @@ final class PullRequestExtension: BurnExtension {
     var tabGlyph: TabGlyph { .symbol("arrow.triangle.branch") }
 
     var settingsSubtitle: String? {
-        forgejoHost.isEmpty ? "GitHub CLI" : "GitHub CLI · \(forgejoHost)"
+        let count = hostStore.hosts.count
+        return count == 1 ? "1 host connected" : "\(count) hosts connected"
     }
 
     func statusLine() -> String? {
@@ -442,75 +437,5 @@ private struct PRRow: View {
             parts.append("open \(Formatters.ago(pr.createdAt))")
         }
         return parts.joined(separator: " · ")
-    }
-}
-
-private struct PullRequestSettingsView: View {
-    let ext: PullRequestExtension
-    @State private var input: String = ""
-    @State private var hostInput: String = ""
-    @State private var tokenInput: String = ""
-    @FocusState private var focused: Bool
-    @FocusState private var hostFocused: Bool
-
-    var body: some View {
-        EmberConfigCard {
-            EmberFieldRow(label: "Orgs") {
-                TextField("all", text: $input)
-                    .focused($focused)
-                    .onAppear { input = ext.owners.joined(separator: ", ") }
-                    .onSubmit(commitOwners)
-                    .onChange(of: focused) { _, isFocused in
-                        if !isFocused { commitOwners() }
-                    }
-            }
-            EmberFieldRow(label: "Forgejo") {
-                TextField("git.example.com", text: $hostInput)
-                    .focused($hostFocused)
-                    .onAppear { hostInput = ext.forgejoHost }
-                    .onSubmit(commitHost)
-                    .onChange(of: hostFocused) { _, isFocused in
-                        if !isFocused { commitHost() }
-                    }
-            }
-            if ext.hasForgejoToken, tokenInput.isEmpty {
-                HStack(spacing: 8) {
-                    Text("Token")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Ember.caption)
-                        .frame(width: 58, alignment: .leading)
-                    EmberStoredBadge(text: "In Keychain")
-                }
-            } else {
-                EmberFieldRow(label: "Token") {
-                    SecureField("read:issue token", text: $tokenInput)
-                        .onSubmit(commitToken)
-                }
-            }
-        }
-    }
-
-    private func commitOwners() {
-        let parsed = input
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard parsed != ext.owners else { return }
-        ext.owners = parsed
-        ext.refresh()
-    }
-
-    private func commitHost() {
-        let trimmed = hostInput.trimmingCharacters(in: .whitespaces)
-        guard trimmed != ext.forgejoHost else { return }
-        ext.forgejoHost = trimmed
-        ext.refresh()
-    }
-
-    private func commitToken() {
-        guard !tokenInput.isEmpty else { return }
-        ext.setForgejoToken(tokenInput)
-        tokenInput = ""
-        ext.refresh()
     }
 }

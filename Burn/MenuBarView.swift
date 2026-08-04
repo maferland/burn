@@ -9,13 +9,20 @@ struct MenuBarView: View {
 
     @State private var showSettings = ProcessInfo.processInfo.environment["BURN_SETTINGS"] != nil
     @State private var sessionID = UUID()
+    @State private var detail: AnyView?
 
     var body: some View {
         let enabled = registry.enabledExtensions
 
         return VStack(spacing: 0) {
             if showSettings {
-                SettingsPanel(settings: settings, registry: registry, onClose: { showSettings = false })
+                if let detail {
+                    detail
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                } else {
+                    SettingsPanel(settings: settings, registry: registry, onClose: closeSettings)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
             } else if enabled.isEmpty {
                 EmberEmptyState(
                     title: "No extensions enabled",
@@ -49,6 +56,12 @@ struct MenuBarView: View {
             NSApp.keyWindow?.makeFirstResponder(nil)
         }
         .environment(\.openBurnSettings, { showSettings.toggle() })
+        .environment(\.burnPushDetail, { view in
+            withAnimation(.easeOut(duration: 0.22)) { detail = view }
+        })
+        .environment(\.burnPopDetail, {
+            withAnimation(.easeOut(duration: 0.2)) { detail = nil }
+        })
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             guard let window = note.object as? NSWindow else { return }
             let className = String(describing: type(of: window))
@@ -70,7 +83,13 @@ struct MenuBarView: View {
         enabled.first { $0.id == registry.activeTabId } ?? enabled.first
     }
 
+    private func closeSettings() {
+        detail = nil
+        showSettings = false
+    }
+
     private func resetToHome(enabled: [any BurnExtension]) {
+        detail = nil
         showSettings = false
         if let first = enabled.first {
             registry.activeTabId = first.id

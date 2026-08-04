@@ -48,7 +48,7 @@ enum ScreenshotGenerator {
         )
         limitsService.response = mockLimits()
         registry.register(LimitsExtension(service: limitsService))
-        let prExt = PullRequestExtension(usageService: service)
+        let prExt = PullRequestExtension(usageService: service, hostStore: mockHostStore())
         prExt.prs = mockPRs()
         prExt.lastRefresh = Date()
         registry.register(prExt)
@@ -122,6 +122,23 @@ enum ScreenshotGenerator {
                 hostLabel: "git.example.com"
             ),
         ]
+    }
+
+    /// Isolated defaults and a canned token read, so screenshots never depend on the real config.
+    @MainActor private static func mockHostStore() -> GitHostStore {
+        let defaults = UserDefaults(suiteName: "burn.screenshot.hosts")!
+        defaults.removePersistentDomain(forName: "burn.screenshot.hosts")
+        let store = GitHostStore(
+            defaults: defaults,
+            legacyTokenService: "burn.screenshot.legacy",
+            readToken: { _ in .value("mock-token") }
+        )
+        for host in store.hosts {
+            store.remove(host.id)
+        }
+        store.upsert(GitHostConfig(host: "github.com", org: "carta"))
+        store.upsert(GitHostConfig(host: "git.carta.rocks", org: "carta"))
+        return store
     }
 
     private static func mockLimits() -> LimitsResponse {
