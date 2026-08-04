@@ -5,18 +5,33 @@ final class UsageExtension: BurnExtension {
     let id = "usage"
     let displayName = "Usage"
 
+    static let scopeKey = "usage.scope"
+
     let service: UsageService
+    let codexService: CodexUsageService
     let settings: SettingsStore
 
-    init(service: UsageService, settings: SettingsStore) {
+    /// Which provider the tab is scoped to, remembered across launches.
+    var scope: UsageScope {
+        didSet { UserDefaults.standard.set(scope.id, forKey: Self.scopeKey) }
+    }
+
+    var providerUsage: ProviderUsage { ProviderUsage(claude: service, codex: codexService) }
+
+    init(service: UsageService, codexService: CodexUsageService, settings: SettingsStore) {
         self.service = service
+        self.codexService = codexService
         self.settings = settings
+        let stored = UserDefaults.standard.string(forKey: Self.scopeKey)
+        self.scope = Provider(rawValue: stored ?? "").map(UsageScope.provider)
+            ?? (stored == "all" ? .all : .provider(.claude))
     }
 
     var tabGlyph: TabGlyph { .asset }
 
     func refresh() {
         service.refresh()
+        codexService.refresh()
     }
 
     func statusLine() -> String? {
@@ -39,6 +54,6 @@ final class UsageExtension: BurnExtension {
     }
 
     func popoverTab() -> AnyView {
-        AnyView(UsageDashboardView(service: service, settings: settings))
+        AnyView(UsageDashboardView(ext: self, service: service, settings: settings))
     }
 }

@@ -1,45 +1,9 @@
 import Foundation
 
-enum LimitsProvider: String, Codable, CaseIterable, Hashable {
-    case claude
-    case codex
-
-    var displayName: String {
-        switch self {
-        case .claude: return "Claude"
-        case .codex:  return "Codex"
-        }
-    }
-
-    /// The config home a fresh install writes to, and the fallback when an account has no explicit one.
-    var defaultHome: URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        switch self {
-        case .claude: return home.appendingPathComponent(".claude")
-        case .codex:  return home.appendingPathComponent(".codex")
-        }
-    }
-
-    /// The env var a user sets to point a CLI at a second login.
-    var homeEnvironmentVariable: String {
-        switch self {
-        case .claude: return "CLAUDE_CONFIG_DIR"
-        case .codex:  return "CODEX_HOME"
-        }
-    }
-
-    var homeExample: String {
-        switch self {
-        case .claude: return "~/.claude-personal"
-        case .codex:  return "~/.codex-work"
-        }
-    }
-}
-
 /// One login. Two accounts of the same provider differ by config home, which is how the CLIs keep
 /// separate credentials — so the home path is what makes the id stable across renames.
 struct LimitsAccount: Codable, Hashable, Identifiable {
-    let provider: LimitsProvider
+    let provider: Provider
     var label: String
     /// nil means the provider's default home.
     var homePath: String?
@@ -185,6 +149,13 @@ struct LimitsResponse: Codable, Hashable {
     static let empty = LimitsResponse(accounts: [])
 
     var isEmpty: Bool { accounts.isEmpty }
+
+    /// Past this much of a window, the tab says so out loud instead of leaving it to be noticed.
+    static let warningThreshold: Double = 85
+
+    var accountsNearCap: [AccountSnapshot] {
+        accounts.filter { ($0.tightestWindow?.effectiveUsedPercent ?? 0) >= Self.warningThreshold }
+    }
 
     /// Across every account, the window with the least headroom left.
     var tightest: (snapshot: AccountSnapshot, window: LimitWindow)? {

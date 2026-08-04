@@ -56,8 +56,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var limitsService = LimitsService(rolloutLimits: { [weak self] in self?.codexService.response.rateLimits })
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
-        r.register(UsageExtension(service: service, settings: settings))
-        r.register(CodexExtension(service: codexService, settings: settings))
+        r.register(UsageExtension(service: service, codexService: codexService, settings: settings))
+        // Codex lives inside Usage now, behind the provider chip. CodexExtension is kept, not
+        // deleted: re-register it here to get the standalone tab back.
         r.register(LimitsExtension(service: limitsService))
         r.register(PullRequestExtension(usageService: service))
         return r
