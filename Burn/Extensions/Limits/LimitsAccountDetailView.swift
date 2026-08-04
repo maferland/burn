@@ -1,22 +1,18 @@
 import SwiftUI
 
-/// Add or edit one forge. The token is write-only: it goes to the Keychain and is never read back.
-struct HostDetailView: View {
-    @State private var editor: HostEditor
+/// Add or edit one extra login. Credentials stay where the CLI put them; this only stores a path.
+struct LimitsAccountDetailView: View {
+    @State private var editor: LimitsAccountEditor
     private let onClose: () -> Void
 
-    @FocusState private var hostFocused: Bool
+    @FocusState private var pathFocused: Bool
 
-    init(ext: PullRequestExtension, config: GitHostConfig, isNew: Bool, onClose: @escaping () -> Void) {
+    init(ext: LimitsExtension, account: LimitsAccount?, onClose: @escaping () -> Void) {
         self.onClose = onClose
-        _editor = State(initialValue: HostEditor(
-            store: ext.hostStore,
-            config: config,
-            isNew: isNew,
-            onCommit: { [weak ext] savedId in
-                ext?.lastSavedHostId = savedId
-                ext?.refresh()
-            }
+        _editor = State(initialValue: LimitsAccountEditor(
+            store: ext.service.store,
+            account: account,
+            onCommit: { [weak ext] in ext?.service.refresh(force: true) }
         ))
     }
 
@@ -29,8 +25,6 @@ struct HostDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 9) {
@@ -46,7 +40,7 @@ struct HostDetailView: View {
             .keyboardShortcut(.escape, modifiers: [])
             .pointingHandCursor()
 
-            Text(editor.isNew ? "Add host" : editor.config.label)
+            Text(editor.isNew ? "Add account" : (editor.existing?.label ?? "Account"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -82,84 +76,33 @@ struct HostDetailView: View {
         .pointingHandCursor()
     }
 
-    // MARK: - Fields
-
     private var fields: some View {
         VStack(alignment: .leading, spacing: 14) {
+            labelled("Provider") {
+                EmberSegmented(
+                    options: [("Claude", LimitsProvider.claude), ("Codex", .codex)],
+                    selection: $editor.provider
+                )
+            }
+
             field(
-                title: "Host URL",
-                caption: editor.hostError ?? "Any GitHub-compatible host — Forgejo, Gitea, GHES, github.com.",
-                isError: editor.hostError != nil
+                title: "Config home",
+                caption: editor.pathError
+                    ?? "The \(editor.provider.homeEnvironmentVariable) this login uses.",
+                isError: editor.pathError != nil
             ) {
-                TextField("git.example.com", text: $editor.config.host)
-                    .focused($hostFocused)
-                    .onChange(of: hostFocused) { _, focused in
-                        if !focused { editor.validateHost() }
+                TextField(editor.provider.homeExample, text: $editor.homePath)
+                    .focused($pathFocused)
+                    .onChange(of: pathFocused) { _, focused in
+                        if !focused { editor.validatePath() }
                     }
-                    .onChange(of: editor.config.host) { _, _ in editor.hostDidChange() }
             }
 
-            field(
-                title: "Repo owner",
-                caption: editor.config.usesGitHubCLI
-                    ? "The org or user that owns the repos. Leave empty for all of them."
-                    : "The org or user that owns the repos, not your username."
-            ) {
-                TextField(editor.config.usesGitHubCLI ? "all" : "acme", text: $editor.config.org)
+            field(title: "Name", caption: "Optional. Defaults to the email found in that folder.") {
+                TextField("personal", text: $editor.label)
             }
-
-            tokenSection
         }
         .padding(.horizontal, 16)
-    }
-
-    @ViewBuilder
-    private var tokenSection: some View {
-        switch editor.tokenState {
-        case .cliManaged:
-            labelled("Access token") {
-                pill(icon: "terminal", text: "Authenticated via gh CLI", filled: false)
-            }
-        case .saved:
-            labelled("Access token") {
-                pill(icon: "checkmark", text: "Saved in Keychain", filled: true) {
-                    Button("Replace") { editor.beginReplacingToken() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Ember.accent)
-                        .pointingHandCursor()
-                }
-            }
-        case .entering:
-            field(title: "Access token", caption: "Needs the read:issue scope.") {
-                SecureField("paste token", text: $editor.tokenInput)
-            }
-        }
-    }
-
-    private func pill(
-        icon: String, text: String, filled: Bool, @ViewBuilder trailing: () -> some View = { EmptyView() }
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: icon == "checkmark" ? 9 : 10, weight: .bold))
-                .foregroundStyle(Ember.accent)
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(Ember.caption)
-            Spacer(minLength: 0)
-            trailing()
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(
-            filled ? Ember.accent.opacity(0.08) : Color.black.opacity(0.3),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Ember.accent.opacity(filled ? 0.3 : 0.18), lineWidth: 1)
-        )
     }
 
     private func field(
@@ -200,8 +143,6 @@ struct HostDetailView: View {
             content()
         }
     }
-
-    // MARK: - Footer
 
     private var footer: some View {
         HStack(spacing: 10) {
