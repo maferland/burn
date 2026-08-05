@@ -32,6 +32,7 @@ struct MenuBarView: View {
             } else {
                 EmberStatusHeader(
                     status: activeExtension(enabled)?.statusLine(),
+                    state: activeExtension(enabled)?.state ?? .dormant,
                     extensions: enabled,
                     activeId: activeExtension(enabled)?.id,
                     onSelect: { registry.activeTabId = $0 }

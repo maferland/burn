@@ -27,6 +27,8 @@ final class LimitsExtension: BurnExtension {
         service.refresh()
     }
 
+    var state: ExtensionState { service.state }
+
     func statusLine() -> String? {
         if let (snapshot, window) = service.response.tightest {
             let prefix = service.response.accounts.count > 1

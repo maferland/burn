@@ -36,6 +36,15 @@ final class LimitsService {
 
     var accounts: [LimitsAccount] { store.accounts }
 
+    /// A failure only takes the tab over when nothing came back at all; stale-but-good numbers stay up.
+    var state: ExtensionState {
+        if response.accounts.contains(where: \.hasData) { return .live }
+        if let failure = response.accounts.compactMap(\.failure).first {
+            return .failed(failure.message)
+        }
+        return isLoading ? .loading : .dormant
+    }
+
     func refresh(force: Bool = false) {
         guard !isLoading else { return }
         if !force, Date().timeIntervalSince(lastRefreshDate) < Self.minimumInterval { return }

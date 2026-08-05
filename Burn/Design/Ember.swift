@@ -84,17 +84,18 @@ struct EmberTabStrip: View {
 /// Header line: a pulse dot, one sentence of state, then the tab strip.
 struct EmberStatusHeader: View {
     let status: String?
+    let state: ExtensionState
     let extensions: [any BurnExtension]
     let activeId: String?
     let onSelect: (String) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            if status != nil {
+            if status != nil || state == .loading || state.failureMessage != nil {
                 Circle()
-                    .fill(Ember.accent)
+                    .fill(state.dotColor)
                     .frame(width: 6, height: 6)
-                    .overlay(Circle().stroke(Ember.accent.opacity(0.18), lineWidth: 3))
+                    .overlay(Circle().stroke(state.dotColor.opacity(0.18), lineWidth: 3))
             }
             Text(status ?? "")
                 .font(.system(size: 11.5, weight: .semibold))
