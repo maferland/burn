@@ -20,6 +20,9 @@ protocol BurnExtension: AnyObject {
     /// One sentence of live state for the popover header, next to the pulse dot.
     func statusLine() -> String?
 
+    /// Colours the header dot: amber while live, grey when idle, red when the read broke.
+    var state: ExtensionState { get }
+
     /// Second line under the extension's name in settings.
     var settingsSubtitle: String? { get }
 
@@ -31,6 +34,7 @@ extension BurnExtension {
     func settingsView() -> AnyView? { nil }
     var tabGlyph: TabGlyph { .text(displayName) }
     func statusLine() -> String? { nil }
+    var state: ExtensionState { .live }
     var settingsSubtitle: String? { nil }
     var isConfigured: Bool { true }
 }

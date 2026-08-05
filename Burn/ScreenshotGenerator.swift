@@ -54,6 +54,7 @@ enum ScreenshotGenerator {
         if let activeId = ProcessInfo.processInfo.environment["BURN_ACTIVE_TAB"] {
             registry.activeTabId = activeId
         }
+        applyState(service: service, prs: prExt, limits: limitsService, days: days)
         let view = MenuBarView(service: service, settings: settings, registry: registry)
             .background(Ember.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -80,6 +81,48 @@ enum ScreenshotGenerator {
             fputs("Failed to write: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    /// `BURN_STATE` rewinds the mocks into loading, empty or failed, which are otherwise unreachable here.
+    @MainActor private static func applyState(
+        service: UsageService, prs: PullRequestExtension, limits: LimitsService, days: [DailyUsage]
+    ) {
+        switch ProcessInfo.processInfo.environment["BURN_STATE"] {
+        case "loading":
+            service.lastResponse = nil
+            service.usageData = .empty
+            service.isLoading = true
+            prs.prs = []
+            prs.lastRefresh = nil
+            prs.isLoading = true
+            limits.response = .empty
+            limits.isLoading = true
+        case "empty":
+            let closed = days.dropLast() + [zeroed(days[days.count - 1])]
+            service.usageData = UsageData(
+                todayCost: 0, last7Days: Array(closed), monthTotal: 142.58,
+                isCurrentWeek: true,
+                weekStart: Calendar.current.date(byAdding: .day, value: -6, to: Date())!,
+                weekEnd: Date(), lastRefreshDate: Date(),
+                earliestDate: days.first?.date
+            )
+        case "error":
+            service.lastResponse = nil
+            service.usageData = .empty
+            service.errorMessage = "~/.claude/projects isn't readable. Grant Full Disk Access, or point Burn at another home."
+            prs.prs = []
+            prs.errorMessage = "git.example.com returned 401. The token may have expired."
+        default:
+            break
+        }
+    }
+
+    private static func zeroed(_ day: DailyUsage) -> DailyUsage {
+        DailyUsage(
+            date: day.date, inputTokens: 0, outputTokens: 0,
+            cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0,
+            totalCost: 0, modelsUsed: [], modelBreakdowns: []
+        )
     }
 
     private static func mockPRs() -> [PullRequest] {

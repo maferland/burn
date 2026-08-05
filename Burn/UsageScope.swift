@@ -61,16 +61,42 @@ struct ProviderUsage {
         return total
     }
 
-    /// Per-provider cost for one day, used by the by-provider rows in "All providers".
-    func breakdown(on date: String) -> [(provider: Provider, cost: Double)] {
+    func typicalDayTokens(_ scope: UsageScope) -> Int {
+        var total = 0
+        if scope.includes(.claude) { total += claude.typicalDayTokens }
+        if scope.includes(.codex) { total += codex.typicalDayTokens }
+        return total
+    }
+
+    /// Per-provider totals for one day, used by the by-provider rows in "All providers".
+    func breakdown(on date: String) -> [(provider: Provider, cost: Double, tokens: Int)] {
         availableProviders.compactMap { provider in
             let cost: Double
+            let tokens: Int
             switch provider {
-            case .claude: cost = claude.day(date)?.totalCost ?? 0
-            case .codex:  cost = codex.response.day(date)?.estimatedCost ?? 0
+            case .claude:
+                let day = claude.day(date)
+                cost = day?.totalCost ?? 0
+                tokens = (day?.inputTokens ?? 0) + (day?.outputTokens ?? 0)
+            case .codex:
+                let day = codex.response.day(date)
+                cost = day?.estimatedCost ?? 0
+                tokens = (day?.tokens.uncachedInputTokens ?? 0) + (day?.tokens.outputTokens ?? 0)
             }
-            return cost > 0 ? (provider, cost) : nil
+            return cost > 0 ? (provider, cost, tokens) : nil
         }
+    }
+
+    /// Most recent day with spend before `date`, so an empty day can still show a real number.
+    func lastActiveDay(scope: UsageScope, before date: String) -> DailyUsage? {
+        var candidates: [DailyUsage] = []
+        if scope.includes(.claude) {
+            candidates += (claude.lastResponse?.daily ?? []).filter { $0.totalCost > 0 }
+        }
+        if scope.includes(.codex) {
+            candidates += codex.response.daily.filter { $0.estimatedCost > 0 }.map(Self.asDailyUsage)
+        }
+        return candidates.filter { $0.date < date }.max { $0.date < $1.date }
     }
 
     func usageData(scope: UsageScope, weekOffset: Int = 0) -> UsageData {

@@ -34,12 +34,21 @@ final class UsageExtension: BurnExtension {
         codexService.refresh()
     }
 
+    /// Loading only counts as loading before the first read; after that a refresh happens under real numbers.
+    var state: ExtensionState {
+        if let message = service.errorMessage { return .failed(message) }
+        if service.lastResponse == nil { return service.isLoading ? .loading : .dormant }
+        return providerUsage.usageData(scope: scope).todayCost > 0 ? .live : .dormant
+    }
+
     func statusLine() -> String? {
         let data = service.usageData
         guard data.lastRefreshDate != .distantPast else { return nil }
         if let comparison = Formatters.comparison(value: data.todayCost, baseline: service.typicalDayCost) {
             return comparison
         }
+        // Same rule as the hero: a zero reads as broken, so say what actually happened.
+        guard data.todayCost > 0 else { return "Nothing burned yet" }
         return "\(Formatters.costRounded(data.todayCost)) today"
     }
 

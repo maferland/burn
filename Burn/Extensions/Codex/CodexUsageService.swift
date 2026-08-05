@@ -93,9 +93,19 @@ extension CodexUsageResponse {
 extension CodexUsageService {
     /// Mean of the days with spend, today excluded, matching how the Claude baseline is built.
     var typicalDayCost: Double {
-        let today = CodexSessionReader.dateString(from: Date())
-        let past = response.daily.filter { $0.date != today && $0.estimatedCost > 0 }.suffix(30)
+        let past = baselineDays
         guard !past.isEmpty else { return 0 }
         return past.reduce(0) { $0 + $1.estimatedCost } / Double(past.count)
+    }
+
+    var typicalDayTokens: Int {
+        let past = baselineDays
+        guard !past.isEmpty else { return 0 }
+        return past.reduce(0) { $0 + $1.tokens.uncachedInputTokens + $1.tokens.outputTokens } / past.count
+    }
+
+    private var baselineDays: ArraySlice<CodexDailyUsage> {
+        let today = CodexSessionReader.dateString(from: Date())
+        return response.daily.filter { $0.date != today && $0.estimatedCost > 0 }.suffix(30)
     }
 }

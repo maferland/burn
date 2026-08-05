@@ -10,7 +10,17 @@ struct LimitsDashboardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !response.isEmpty {
+            if case .loading = service.state {
+                EmberLoadingBody()
+            } else if case .failed(let message) = service.state {
+                EmberErrorCard(
+                    title: "Couldn't read plan limits",
+                    message: message,
+                    isRetrying: service.isLoading,
+                    onSettings: openSettings,
+                    onRetry: { service.refresh(force: true) }
+                )
+            } else if !response.isEmpty {
                 hero
                 warningRow
                 ForEach(response.accounts) { snapshot in

@@ -192,6 +192,12 @@ final class PullRequestExtension: BurnExtension {
         return count == 1 ? "1 host connected" : "\(count) hosts connected"
     }
 
+    var state: ExtensionState {
+        if let message = errorMessage, prs.isEmpty { return .failed(message) }
+        if lastRefresh == nil { return isLoading ? .loading : .dormant }
+        return todayMergedCount > 0 || todayOpenCount > 0 ? .live : .dormant
+    }
+
     func statusLine() -> String? {
         guard lastRefresh != nil else { return nil }
         let merged = mergedPRs(in: todayPRs)
@@ -223,9 +229,32 @@ enum PRPeriod: Hashable { case today, week, month }
 struct PullRequestTabView: View {
     let ext: PullRequestExtension
 
+    @Environment(\.openBurnSettings) private var openSettings
+
     @State private var selectedPeriod: PRPeriod = .week
 
     var body: some View {
+        VStack(spacing: 0) {
+            switch ext.state {
+            case .loading:
+                EmberLoadingBody()
+            case .failed(let message):
+                EmberErrorCard(
+                    title: "Couldn't reach your hosts",
+                    message: message,
+                    isRetrying: ext.isLoading,
+                    onSettings: openSettings,
+                    onRetry: { ext.refresh() }
+                )
+            default:
+                loaded
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Partial failures stay a banner: one dead host shouldn't hide the PRs the others returned.
+    private var loaded: some View {
         VStack(spacing: 0) {
             if let error = ext.errorMessage {
                 banner(error, symbol: "exclamationmark.triangle", color: Ember.accentDeep)
@@ -237,7 +266,6 @@ struct PullRequestTabView: View {
             costTrack
             listSection
         }
-        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Hero
