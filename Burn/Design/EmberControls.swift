@@ -4,20 +4,26 @@ struct EmberSegmented<Value: Hashable>: View {
     let options: [(label: String, value: Value)]
     @Binding var selection: Value
 
+    @Namespace private var pill
+
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { option in
                 let isActive = option.value == selection
-                Button { selection = option.value } label: {
+                Button { withAnimation(EmberMotion.pill) { selection = option.value } } label: {
                     Text(option.label)
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(isActive ? Color.white : Ember.caption)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(
-                            isActive ? Ember.accent.opacity(0.26) : .clear,
-                            in: RoundedRectangle(cornerRadius: 5)
-                        )
+                        .background {
+                            // Same slide as the tab strip, so both 3-ways read as one control.
+                            if isActive {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Ember.accent.opacity(0.26))
+                                    .matchedGeometryEffect(id: "segment", in: pill)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

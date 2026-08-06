@@ -40,11 +40,14 @@ struct MenuBarView: View {
                 activeTabContent(enabled: enabled)
                     .environment(\.burnTabBarVisible, true)
                     .id("\(sessionID)-\(registry.activeTabId ?? "")")
+                    // Overlaps the pill slide slightly, so switching tabs doesn't feel sequential.
+                    .transition(.opacity.animation(EmberMotion.crossfade))
             }
 
             EmberUtilityBar(
                 updated: updatedLabel,
                 isLoading: service.isLoading,
+                signature: refreshSignature(enabled),
                 onRefresh: { registry.refreshAll() },
                 onSettings: { showSettings.toggle() }
             )
@@ -82,6 +85,11 @@ struct MenuBarView: View {
 
     private func activeExtension(_ enabled: [any BurnExtension]) -> (any BurnExtension)? {
         enabled.first { $0.id == registry.activeTabId } ?? enabled.first
+    }
+
+    /// What the refresh icon watches. The status line is the tab's own headline number.
+    private func refreshSignature(_ enabled: [any BurnExtension]) -> String {
+        activeExtension(enabled)?.statusLine() ?? ""
     }
 
     private func closeSettings() {

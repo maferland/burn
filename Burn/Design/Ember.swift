@@ -39,17 +39,23 @@ struct EmberTabStrip: View {
     let activeId: String?
     let onSelect: (String) -> Void
 
+    @Namespace private var pill
+
     var body: some View {
         HStack(spacing: 1) {
             ForEach(extensions, id: \.id) { ext in
                 let isActive = ext.id == activeId
-                Button { onSelect(ext.id) } label: {
+                Button { withAnimation(EmberMotion.pill) { onSelect(ext.id) } } label: {
                     glyph(ext.tabGlyph, isActive: isActive)
                         .frame(width: 24, height: 20)
-                        .background(
-                            isActive ? Ember.accent.opacity(0.24) : .clear,
-                            in: RoundedRectangle(cornerRadius: 5)
-                        )
+                        .background {
+                            // The pill slides between tabs rather than fading out and in somewhere else.
+                            if isActive {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Ember.accent.opacity(0.24))
+                                    .matchedGeometryEffect(id: "tab", in: pill)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -89,6 +95,9 @@ struct EmberStatusHeader: View {
     let activeId: String?
     let onSelect: (String) -> Void
 
+    /// Breathing while live. A static dot is how a closed day says so without a label.
+    @State private var isPulsing = false
+
     var body: some View {
         HStack(spacing: 8) {
             if status != nil || state == .loading || state.failureMessage != nil {
@@ -96,11 +105,18 @@ struct EmberStatusHeader: View {
                     .fill(state.dotColor)
                     .frame(width: 6, height: 6)
                     .overlay(Circle().stroke(state.dotColor.opacity(0.18), lineWidth: 3))
+                    .scaleEffect(isPulsing ? 1.08 : 1)
+                    .opacity(isPulsing ? 1 : 0.7)
+                    .animation(state == .live ? EmberMotion.pulse : .default, value: isPulsing)
+                    .onAppear { isPulsing = state == .live }
+                    .onChange(of: state) { _, new in isPulsing = new == .live }
             }
             Text(status ?? "")
                 .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(Ember.strong)
                 .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(EmberMotion.number, value: status)
                 .lineLimit(1)
             Spacer(minLength: 8)
             if extensions.count > 1 {
@@ -115,8 +131,13 @@ struct EmberStatusHeader: View {
 struct EmberUtilityBar: View {
     let updated: String
     let isLoading: Bool
+    /// Changes only when the numbers do, which is what decides a full spin from a shrug.
+    let signature: String
     let onRefresh: () -> Void
     let onSettings: () -> Void
+
+    @State private var rotation: Double = 0
+    @State private var awaiting: String?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -124,12 +145,10 @@ struct EmberUtilityBar: View {
                 .font(.system(size: 10.5))
                 .foregroundStyle(Ember.label)
                 .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(EmberMotion.number, value: updated)
             Spacer(minLength: 6)
-            if isLoading {
-                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 22, height: 22)
-            } else {
-                action("arrow.clockwise", help: "Refresh", perform: onRefresh)
-            }
+            refresh
             action("gearshape", help: "Settings", perform: onSettings)
             action("heart", help: "Support") {
                 NSWorkspace.shared.open(URL(string: "https://buymeacoffee.com/maferland")!)
@@ -144,6 +163,32 @@ struct EmberUtilityBar: View {
         .overlay(alignment: .top) { Rectangle().fill(Ember.hairline).frame(height: 1) }
     }
 
+    /// A full turn only when the pull actually moved the numbers; otherwise a 15° shrug, so
+    /// repeated manual refreshes on a quiet day don't pretend something happened.
+    private var refresh: some View {
+        Button {
+            awaiting = signature
+            onRefresh()
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Ember.text(0.55))
+                .rotationEffect(.degrees(rotation))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(EmberIconButtonStyle())
+        .help("Refresh")
+        .pointingHandCursor()
+        .onChange(of: isLoading) { _, loading in
+            guard !loading, let previous = awaiting else { return }
+            awaiting = nil
+            withAnimation(EmberMotion.spin) {
+                rotation += EmberMotion.refreshRotation(before: previous, after: signature)
+            }
+        }
+    }
+
     private func action(_ symbol: String, help: String, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
             Image(systemName: symbol)
@@ -152,7 +197,7 @@ struct EmberUtilityBar: View {
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(EmberIconButtonStyle())
         .help(help)
         .pointingHandCursor()
     }
@@ -190,6 +235,10 @@ struct EmberHero: View {
             }
             .foregroundStyle(Ember.accent)
             .monospacedDigit()
+            // Digits roll upward on refresh: the number is ticking up, not being replaced.
+            .contentTransition(.numericText())
+            .animation(EmberMotion.number, value: primary)
+            .animation(EmberMotion.number, value: secondary)
             .kerning(-1.2)
             caption
                 .font(.system(size: 12))
@@ -227,6 +276,9 @@ struct EmberTrack: View {
                             .offset(x: min(geo.size.width - 1, geo.size.width * min(max(tick, 0), 1)))
                     }
                 }
+                // The tick slides across the hour rather than jumping to the next position.
+                .animation(EmberMotion.track, value: clamped)
+                .animation(EmberMotion.track, value: tick)
             }
             .frame(height: 6)
 
@@ -283,6 +335,11 @@ struct EmberBarRow: View {
     let emphasis: Double
     /// Defaults to amber; the Limits tab passes each provider's own accent.
     var color: Color = Ember.accent
+    /// Position in its group, which is all the stagger needs to know.
+    var row: Int = 0
+
+    /// Reveals once per appearance, so opening the popover animates but a background refresh doesn't.
+    @State private var revealed = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -297,7 +354,8 @@ struct EmberBarRow: View {
                     Capsule().fill(Color.white.opacity(0.07))
                     Capsule()
                         .fill(color.opacity(emphasis))
-                        .frame(width: max(2, geo.size.width * min(max(fraction, 0), 1)))
+                        .frame(width: revealed ? max(2, geo.size.width * min(max(fraction, 0), 1)) : 0)
+                        .animation(EmberMotion.track, value: fraction)
                 }
             }
             .frame(height: 6)
@@ -305,7 +363,14 @@ struct EmberBarRow: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
                 .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(EmberMotion.number, value: value)
                 .frame(width: 56, alignment: .trailing)
+        }
+        .onAppear {
+            withAnimation(EmberMotion.track.delay(EmberMotion.revealDelay(row: row))) {
+                revealed = true
+            }
         }
     }
 }

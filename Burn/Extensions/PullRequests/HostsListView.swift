@@ -74,7 +74,9 @@ struct HostsListView: View {
         .pointingHandCursor()
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) {
+                withAnimation(EmberMotion.hover) {
                 hoveredId = hovering ? host.id : (hoveredId == host.id ? nil : hoveredId)
+            }
             }
         }
     }

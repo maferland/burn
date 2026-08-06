@@ -458,6 +458,7 @@ private struct PRRow: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .contentShape(Rectangle())
+            .emberHoverRow(cornerRadius: 0)
         }
         .buttonStyle(.plain)
         .pointingHandCursor()

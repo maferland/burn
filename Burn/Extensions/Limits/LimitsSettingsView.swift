@@ -72,7 +72,9 @@ struct LimitsSettingsView: View {
         .pointingHandCursor()
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.1)) {
+                withAnimation(EmberMotion.hover) {
                 hoveredId = hovering ? account.id : (hoveredId == account.id ? nil : hoveredId)
+            }
             }
         }
     }
