@@ -48,15 +48,6 @@ struct SettingsPanel: View {
 
     private var general: some View {
         VStack(spacing: 13) {
-            EmberSettingRow(label: "Menu bar shows", detail: "Icon, amount, or both") {
-                EmberSegmented(
-                    options: [("Icon", MenuBarDisplay.icon), ("$", .amount), ("Both", .both)],
-                    selection: Binding(
-                        get: { settings.menuBarDisplay },
-                        set: { settings.menuBarDisplay = $0 }
-                    )
-                )
-            }
             EmberSettingRow(label: "Measure in", detail: "Dollars, tokens, or both") {
                 EmberSegmented(
                     options: [("Cost", DisplayMode.cost), ("Tokens", .tokens), ("Both", .both)],

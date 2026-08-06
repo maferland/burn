@@ -36,12 +36,7 @@ final class CodexExtension: BurnExtension {
 
     func menuBarSegment() -> Text? {
         guard !service.response.isEmpty else { return nil }
-        let amount = "~" + String(format: "$%.0f", service.response.todayCost)
-        switch settings.menuBarDisplay {
-        case .icon:    return Text("◇")
-        case .amount:  return Text(amount)
-        case .both:    return Text("◇ \(amount)")
-        }
+        return Text("◇ ~" + String(format: "$%.0f", service.response.todayCost))
     }
 
     func popoverTab() -> AnyView {
