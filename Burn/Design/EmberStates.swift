@@ -84,7 +84,7 @@ struct EmberErrorCard: View {
                     .frame(width: 7, height: 7)
                 Text(title)
                     .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Ember.primary)
             }
             Text(message)
                 .font(.system(size: 11))
@@ -117,7 +117,7 @@ struct EmberErrorCard: View {
                 } else {
                     Text("Retry")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Ember.onAccent)
+                        .foregroundStyle(Ember.onDanger)
                 }
             }
             .frame(width: 52, height: 20)

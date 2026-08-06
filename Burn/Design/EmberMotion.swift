@@ -15,7 +15,7 @@ enum EmberMotion {
     static let pulse = Animation.easeInOut(duration: 1).repeatForever(autoreverses: true)
 
     static let hoverWash = Color(red: 1.0, green: 0.702, blue: 0.251).opacity(0.05)
-    static let iconHoverWash = Color.white.opacity(0.06)
+    static let iconHoverWash = Ember.fill(0.06)
 
     /// A full turn says "that changed something", a 15° nudge says "asked, nothing new".
     static func refreshRotation(before: String, after: String) -> Double {

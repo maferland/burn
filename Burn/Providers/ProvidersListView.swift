@@ -49,7 +49,7 @@ struct ProvidersListView: View {
 
             Text("Providers")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
@@ -69,7 +69,7 @@ struct ProvidersListView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(provider.displayName)
                         .font(.system(size: 12.5, weight: connected ? .semibold : .medium))
-                        .foregroundStyle(connected ? .white : Ember.text(0.5))
+                        .foregroundStyle(connected ? Ember.primary : Ember.text(0.5))
                     Text(subtitle(provider))
                         .font(.system(size: 10.5))
                         .foregroundStyle(Ember.text(connected ? 0.42 : 0.35))

@@ -55,7 +55,7 @@ struct SettingsPanel: View {
 
             Text("Settings")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -65,6 +65,15 @@ struct SettingsPanel: View {
     private var general: some View {
         VStack(spacing: 13) {
             providersRow
+            EmberSettingRow(label: "Appearance", detail: "System, Light, or Dark") {
+                EmberSegmented(
+                    options: AppearanceChoice.allCases.map { ($0.label, $0) },
+                    selection: Binding(
+                        get: { settings.appearance },
+                        set: { settings.appearance = $0 }
+                    )
+                )
+            }
             EmberSettingRow(label: "Measure in", detail: "Dollars, tokens, or both") {
                 EmberSegmented(
                     options: [("Cost", DisplayMode.cost), ("Tokens", .tokens), ("Both", .both)],
@@ -86,7 +95,7 @@ struct SettingsPanel: View {
                     HStack(spacing: 5) {
                         Text("\(settings.refreshIntervalMinutes) min")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Ember.primary)
                             .monospacedDigit()
                         Image(systemName: "chevron.down")
                             .font(.system(size: 8, weight: .bold))

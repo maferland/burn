@@ -47,7 +47,7 @@ struct ProviderConnectView: View {
 
             Text("Connect a provider")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
@@ -68,7 +68,7 @@ struct ProviderConnectView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(provider.displayName)
                         .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Ember.primary)
                     Text(ready
                         ? provider.sourceDescription
                         : "Not signed in yet. Connect anyway and point it at a folder.")

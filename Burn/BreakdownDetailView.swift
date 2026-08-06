@@ -30,7 +30,7 @@ struct BreakdownDetailView: View {
 
             Text(data.title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
             Spacer()
             Text(data.subtitle)
                 .font(.system(size: 10.5))
@@ -63,7 +63,7 @@ struct BreakdownDetailView: View {
         HStack(spacing: 10) {
             Text(label)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
                 .frame(width: 82, alignment: .leading)
             Text(Formatters.tokensCompact(tokens))
                 .font(.system(size: 11))
@@ -72,7 +72,7 @@ struct BreakdownDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             Text(Formatters.cost(cost))
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(data.totalCost > 0 && cost / data.totalCost > 0.4 ? Ember.accent : .white)
+                .foregroundStyle(data.totalCost > 0 && cost / data.totalCost > 0.4 ? Ember.accent : Ember.primary)
                 .monospacedDigit()
                 .frame(width: 62, alignment: .trailing)
         }

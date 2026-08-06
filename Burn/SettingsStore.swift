@@ -10,6 +10,7 @@ enum DisplayMode: Int {
 final class SettingsStore {
     static let refreshIntervalKey = "refreshIntervalMinutes"
     static let displayModeKey = "displayMode"
+    static let appearanceKey = "appearance"
     static let defaultRefreshInterval = 5
 
     var refreshIntervalMinutes: Int {
@@ -18,6 +19,14 @@ final class SettingsStore {
 
     var displayMode: DisplayMode {
         didSet { defaults.set(displayMode.rawValue, forKey: Self.displayModeKey) }
+    }
+
+    /// Tokens cover the colours; this is the state half, and it has to reach NSApp to take effect.
+    var appearance: AppearanceChoice {
+        didSet {
+            defaults.set(appearance.rawValue, forKey: Self.appearanceKey)
+            appearance.apply()
+        }
     }
 
     static let availableIntervals = [1, 5, 10, 15, 30]
@@ -31,5 +40,7 @@ final class SettingsStore {
         self.refreshIntervalMinutes = Self.availableIntervals.contains(stored) ? stored : Self.defaultRefreshInterval
         let modeRaw = defaults.object(forKey: Self.displayModeKey) as? Int
         self.displayMode = modeRaw.flatMap(DisplayMode.init(rawValue:)) ?? .cost
+        let appearanceRaw = defaults.object(forKey: Self.appearanceKey) as? Int
+        self.appearance = appearanceRaw.flatMap(AppearanceChoice.init(rawValue:)) ?? .system
     }
 }

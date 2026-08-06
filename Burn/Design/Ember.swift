@@ -1,31 +1,96 @@
 import SwiftUI
 
-/// Ember: dark surface, amber accent. Amber means money, white means labels.
+/// Ember: warm surface, amber accent. Amber means money, the text ramp means labels.
+/// Every token resolves per appearance, so no component ever picks a light or dark value itself.
 enum Ember {
     static let width: CGFloat = 344
 
-    static let surface = Color(red: 0.086, green: 0.082, blue: 0.059)
-    static let utility = Color.black.opacity(0.25)
-    static let accent = Color(red: 1.0, green: 0.702, blue: 0.251)
-    static let accentDeep = Color(red: 1.0, green: 0.478, blue: 0.239)
-    static let hairline = Color(red: 1.0, green: 0.702, blue: 0.251).opacity(0.14)
+    private static let ink = EmberToken.hex(0x1A1710)
 
-    static func text(_ opacity: Double) -> Color { Color.white.opacity(opacity) }
+    static let surface = EmberToken.dynamic(dark: .hex(0x16150F), light: .hex(0xFBFAF8))
+    static let utility = EmberToken.dynamic(
+        dark: EmberToken.hex(0x000000, alpha: 0.25),
+        light: EmberToken.hex(0xD97706, alpha: 0.04)
+    )
+
+    /// Light shifts amber down to #D97706 to hold contrast on a cream surface; a straight
+    /// invert would fail on the hero number and every bar fill.
+    static let accent = EmberToken.dynamic(dark: .hex(0xFFB340), light: .hex(0xD97706))
+    static let accentDeep = EmberToken.dynamic(dark: .hex(0xFF7A3D), light: .hex(0xB45309))
+    static let hairline = EmberToken.dynamic(
+        dark: EmberToken.hex(0xFFB340, alpha: 0.14),
+        light: EmberToken.hex(0xD97706, alpha: 0.14)
+    )
+
+    /// The whole text ramp, one call. White on dark, near-black on light, same opacities.
+    static func text(_ opacity: Double) -> Color { textRamp[step(opacity)] ?? textColor(opacity) }
+
+    /// Backgrounds and empty track fills, which read as a wash rather than as text.
+    static func fill(_ opacity: Double) -> Color { fillRamp[step(opacity)] ?? fillColor(opacity) }
+
+    /// Built once. A fresh dynamic NSColor per call would make two identical greys unequal, which
+    /// costs SwiftUI its diffing and makes the colours untestable.
+    private static let textRamp = ramp(textColor)
+    private static let fillRamp = ramp(fillColor)
+
+    private static func ramp(_ make: (Double) -> Color) -> [Int: Color] {
+        Dictionary(uniqueKeysWithValues: (0...100).map { ($0, make(Double($0) / 100)) })
+    }
+
+    private static func step(_ opacity: Double) -> Int {
+        Int((min(max(opacity, 0), 1) * 100).rounded())
+    }
+
+    private static func textColor(_ opacity: Double) -> Color {
+        EmberToken.dynamic(
+            dark: EmberToken.hex(0xFFFFFF, alpha: opacity),
+            light: EmberToken.hex(0x1A1710, alpha: min(1, opacity * 1.12))
+        )
+    }
+
+    private static func fillColor(_ opacity: Double) -> Color {
+        EmberToken.dynamic(
+            dark: EmberToken.hex(0xFFFFFF, alpha: opacity),
+            light: EmberToken.hex(0x1A1710, alpha: opacity * 0.9)
+        )
+    }
+
+    /// Inset wells, mostly text fields. Black carves into a dark surface; on cream it has to be
+    /// the ink at low alpha, since black at the same strength reads as a hole.
+    static func recess(_ opacity: Double) -> Color {
+        EmberToken.dynamic(
+            dark: EmberToken.hex(0x000000, alpha: opacity),
+            light: EmberToken.hex(0x1A1710, alpha: opacity * 0.12)
+        )
+    }
 
     /// Connection health, which is a yes/no rather than a quantity, so it sits outside the ramp.
-    static let healthy = Color(red: 0.196, green: 0.843, blue: 0.294)
+    /// Darkened on light: #32D74B lands near 1.8:1 on cream, well under the 3:1 a dot needs.
+    static let healthy = EmberToken.dynamic(dark: .hex(0x32D74B), light: .hex(0x1E9E36))
 
     /// The one place amber gives way: destructive actions and error states.
-    static let danger = Color(red: 1.0, green: 0.412, blue: 0.380)
-    static let dangerBright = Color(red: 1.0, green: 0.541, blue: 0.514)
-    static let onAccent = Color(red: 0.102, green: 0.090, blue: 0.063)
+    static let danger = EmberToken.dynamic(dark: .hex(0xFF6961), light: .hex(0xD62E27))
+    static let dangerBright = EmberToken.dynamic(dark: .hex(0xFF8A83), light: .hex(0xB3261E))
 
-    static let label = Color.white.opacity(0.45)
-    static let caption = Color.white.opacity(0.5)
-    static let strong = Color.white.opacity(0.72)
+    /// Text sitting on an amber fill. Near-black beats white against both accents.
+    static let onAccent = Color(nsColor: ink)
+
+    /// Text on a red fill, which flips: the red lightens on dark and darkens on light.
+    static let onDanger = EmberToken.dynamic(dark: .hex(0x1A1710), light: .hex(0xFFFFFF))
+
+    static var label: Color { text(0.45) }
+    static var caption: Color { text(0.5) }
+    static var strong: Color { text(0.72) }
+
+    /// Full-strength body text. Named because `.white` is only correct in one appearance.
+    static var primary: Color { text(1) }
 
     static let heroSize: CGFloat = 46
     static let heroCentsSize: CGFloat = 26
+}
+
+extension NSColor {
+    static func hex(_ value: UInt32) -> NSColor { EmberToken.hex(value) }
 }
 
 // MARK: - Chrome
@@ -74,18 +139,20 @@ struct EmberTabStrip: View {
     private func glyph(_ glyph: TabGlyph, isActive: Bool) -> some View {
         switch glyph {
         case .asset:
+            // The glyph is a template, so it has to be told to tint; left alone it draws flat black.
             Image(nsImage: MenuBarLabel.loadMenuBarIcon())
                 .resizable()
+                .renderingMode(.template)
                 .frame(width: 12, height: 12)
-                .opacity(isActive ? 1 : 0.42)
+                .foregroundStyle(isActive ? Ember.primary : Ember.label)
         case .symbol(let name):
             Image(systemName: name)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isActive ? Color.white : Ember.label)
+                .foregroundStyle(isActive ? Ember.primary : Ember.label)
         case .text(let title):
             Text(title)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isActive ? Color.white : Ember.label)
+                .foregroundStyle(isActive ? Ember.primary : Ember.label)
         }
     }
 }
@@ -265,7 +332,7 @@ struct EmberTrack: View {
             GeometryReader { geo in
                 let clamped = min(max(fill, 0), 1)
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.08))
+                    Capsule().fill(Ember.fill(0.08))
                     Capsule()
                         .fill(LinearGradient(
                             colors: [Ember.accent, Ember.accentDeep],
@@ -274,7 +341,7 @@ struct EmberTrack: View {
                         .frame(width: max(3, geo.size.width * clamped))
                     if let tick {
                         Rectangle()
-                            .fill(Color.white.opacity(0.35))
+                            .fill(Ember.fill(0.35))
                             .frame(width: 1, height: 12)
                             .offset(x: min(geo.size.width - 1, geo.size.width * min(max(tick, 0), 1)))
                     }
@@ -348,13 +415,13 @@ struct EmberBarRow: View {
         HStack(spacing: 10) {
             Text(label)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(width: 88, alignment: .leading)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.07))
+                    Capsule().fill(Ember.fill(0.07))
                     Capsule()
                         .fill(color.opacity(emphasis))
                         .frame(width: revealed ? max(2, geo.size.width * min(max(fraction, 0), 1)) : 0)
@@ -364,7 +431,7 @@ struct EmberBarRow: View {
             .frame(height: 6)
             Text(value)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .animation(EmberMotion.number, value: value)
@@ -459,7 +526,7 @@ struct EmberContextStrip: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Text(item.label).foregroundStyle(Ember.caption)
-                Text(item.value).foregroundStyle(.white).fontWeight(.semibold)
+                Text(item.value).foregroundStyle(Ember.primary).fontWeight(.semibold)
             }
             .font(.system(size: 11.5))
             .monospacedDigit()
@@ -490,7 +557,7 @@ struct EmberEmptyState: View {
         VStack(spacing: 7) {
             Text(title)
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
             Text(detail)
                 .font(.system(size: 11))
                 .foregroundStyle(Ember.caption)

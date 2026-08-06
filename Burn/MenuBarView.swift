@@ -58,7 +58,6 @@ struct MenuBarView: View {
         }
         .frame(width: Ember.width)
         .background(Ember.surface)
-        .environment(\.colorScheme, .dark)
         .contentShape(Rectangle())
         .onTapGesture {
             NSApp.keyWindow?.makeFirstResponder(nil)

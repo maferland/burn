@@ -52,7 +52,7 @@ struct HostsListView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(host.label)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Ember.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(subtitle(host))

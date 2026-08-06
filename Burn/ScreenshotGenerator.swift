@@ -11,6 +11,8 @@ enum ScreenshotGenerator {
             if let value = UserDefaults.standard.object(forKey: key) { scratch.set(value, forKey: key) }
         }
         let settings = SettingsStore(defaults: scratch)
+        let appearance: AppearanceChoice =
+            ProcessInfo.processInfo.environment["BURN_APPEARANCE"] == "light" ? .light : .dark
         if let mode = ProcessInfo.processInfo.environment["BURN_DISPLAY_MODE"] {
             switch mode.lowercased() {
             case "tokens": settings.displayMode = .tokens
@@ -67,12 +69,18 @@ enum ScreenshotGenerator {
             .background(Ember.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .padding(6)
-            .environment(\.colorScheme, .dark)
+            .environment(\.colorScheme, appearance == .light ? .light : .dark)
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = scale
 
-        guard let image = renderer.nsImage,
+        // Offscreen rendering has no window to inherit from, so the dynamic tokens need an
+        // appearance made current by hand or they all resolve to whatever the system is doing.
+        var rendered: NSImage?
+        (appearance.nsAppearance ?? NSAppearance.currentDrawing())
+            .performAsCurrentDrawingAppearance { rendered = renderer.nsImage }
+
+        guard let image = rendered,
               let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:])

@@ -361,7 +361,7 @@ struct PullRequestTabView: View {
                 PRRow(pr: pr)
                 if idx < prs.count - 1 {
                     Rectangle()
-                        .fill(Color.white.opacity(0.06))
+                        .fill(Ember.fill(0.06))
                         .frame(height: 1)
                         .padding(.leading, 33)
                 }
@@ -443,7 +443,7 @@ private struct PRRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Ember.primary)
                         .lineLimit(1)
                     Text(subtitle)
                         .font(.system(size: 10.5))
