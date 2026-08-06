@@ -71,10 +71,8 @@ struct LimitsSettingsView: View {
         .disabled(account.isAutoDetected)
         .pointingHandCursor()
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.1)) {
-                withAnimation(EmberMotion.hover) {
+            withAnimation(EmberMotion.hover) {
                 hoveredId = hovering ? account.id : (hoveredId == account.id ? nil : hoveredId)
-            }
             }
         }
     }
