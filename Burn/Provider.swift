@@ -40,6 +40,14 @@ enum Provider: String, Codable, CaseIterable, Hashable, Identifiable {
         }
     }
 
+    /// Where the numbers come from, said once so every provider row reads the same way.
+    var sourceDescription: String {
+        switch self {
+        case .claude: return "Local usage logs"
+        case .codex:  return "OpenAI CLI logs"
+        }
+    }
+
     var homeExample: String {
         switch self {
         case .claude: return "~/.claude-personal"

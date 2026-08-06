@@ -16,12 +16,22 @@ final class UsageExtension: BurnExtension {
         didSet { UserDefaults.standard.set(scope.id, forKey: Self.scopeKey) }
     }
 
-    var providerUsage: ProviderUsage { ProviderUsage(claude: service, codex: codexService) }
+    let providers: ProviderStore?
 
-    init(service: UsageService, codexService: CodexUsageService, settings: SettingsStore) {
+    var providerUsage: ProviderUsage {
+        ProviderUsage(claude: service, codex: codexService, counted: providers?.countedInTotal)
+    }
+
+    init(
+        service: UsageService,
+        codexService: CodexUsageService,
+        settings: SettingsStore,
+        providers: ProviderStore? = nil
+    ) {
         self.service = service
         self.codexService = codexService
         self.settings = settings
+        self.providers = providers
         let stored = UserDefaults.standard.string(forKey: Self.scopeKey)
         self.scope = Provider(rawValue: stored ?? "").map(UsageScope.provider)
             ?? (stored == "all" ? .all : .provider(.claude))

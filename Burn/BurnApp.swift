@@ -14,7 +14,8 @@ struct BurnApp: App {
             MenuBarView(
                 service: appDelegate.service,
                 settings: appDelegate.settings,
-                registry: appDelegate.registry
+                registry: appDelegate.registry,
+                providers: appDelegate.providers
             )
         } label: {
             MenuBarLabel(registry: appDelegate.registry)
@@ -50,13 +51,16 @@ struct MenuBarLabel: View {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
+    let providers = ProviderStore()
     lazy var service = UsageService(settings: settings)
     lazy var codexService = CodexUsageService()
     // Codex only reports quota while it runs, so Limits reuses the snapshot the Codex tab already parsed.
     lazy var limitsService = LimitsService(rolloutLimits: { [weak self] in self?.codexService.response.rateLimits })
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
-        r.register(UsageExtension(service: service, codexService: codexService, settings: settings))
+        r.register(UsageExtension(
+            service: service, codexService: codexService, settings: settings, providers: providers
+        ))
         // Codex lives inside Usage now, behind the provider chip. CodexExtension is kept, not
         // deleted: re-register it here to get the standalone tab back.
         r.register(LimitsExtension(service: limitsService))

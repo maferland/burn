@@ -4,11 +4,27 @@ import SwiftUI
 struct SettingsPanel: View {
     let settings: SettingsStore
     let registry: ExtensionRegistry
+    let providers: ProviderStore
     let onClose: () -> Void
+
+    @Environment(\.burnPushDetail) private var pushDetail
 
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
 
     var body: some View {
+        content
+            .onAppear {
+                // Screenshot knob, same family as BURN_ACTIVE_TAB and BURN_HOST_DETAIL.
+                switch ProcessInfo.processInfo.environment["BURN_PROVIDERS"] {
+                case "list":   openProviders()
+                case "detail": openProviders(detail: .claude)
+                case "add":    openProviders(detail: nil, connecting: true)
+                default:       break
+                }
+            }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             header
             general
@@ -48,6 +64,7 @@ struct SettingsPanel: View {
 
     private var general: some View {
         VStack(spacing: 13) {
+            providersRow
             EmberSettingRow(label: "Measure in", detail: "Dollars, tokens, or both") {
                 EmberSegmented(
                     options: [("Cost", DisplayMode.cost), ("Tokens", .tokens), ("Both", .both)],
@@ -95,6 +112,39 @@ struct SettingsPanel: View {
         .padding(.horizontal, 16)
         .padding(.top, 16)
         .padding(.bottom, 8)
+    }
+
+    private func openProviders(detail: Provider? = nil, connecting: Bool = false) {
+        if connecting {
+            pushDetail(AnyView(ProviderConnectView(store: providers, onChange: registry.refreshAll)))
+        } else if let detail {
+            pushDetail(AnyView(
+                ProviderDetailView(store: providers, provider: detail, onChange: registry.refreshAll)
+            ))
+        } else {
+            pushDetail(AnyView(
+                ProvidersListView(store: providers, onChange: registry.refreshAll)
+            ))
+        }
+    }
+
+    /// The one place providers are connected. The header chip is a view filter, not a way in.
+    private var providersRow: some View {
+        Button {
+            openProviders()
+        } label: {
+            EmberSettingRow(
+                label: "Providers",
+                detail: "\(providers.connected.map(\.displayName).joined(separator: ", ")) — connect, plans, caps"
+            ) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Ember.text(0.35))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 
     private var extensions: some View {
