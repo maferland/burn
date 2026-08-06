@@ -43,7 +43,7 @@ struct ProviderDetailView: View {
             Circle().fill(provider.accent).frame(width: 7, height: 7)
             Text(provider.displayName)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
             Spacer(minLength: 8)
             if store.isConnected(provider) { disconnectButton }
         }
@@ -84,10 +84,10 @@ struct ProviderDetailView: View {
                         .focused($pathFocused)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Ember.primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 9)
-                        .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Ember.recess(0.3), in: RoundedRectangle(cornerRadius: 8))
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
                                 .strokeBorder(sourceBorder, lineWidth: 1)
@@ -109,7 +109,7 @@ struct ProviderDetailView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(planLabel)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Ember.primary)
                         Text("Read from the account this login belongs to")
                             .font(.system(size: 10.5))
                             .foregroundStyle(Ember.text(0.4))
@@ -121,7 +121,7 @@ struct ProviderDetailView: View {
             HStack(spacing: 10) {
                 Text("Include in \"All providers\" total")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Ember.primary)
                 Spacer(minLength: 8)
                 EmberToggle(isOn: Binding(
                     get: { store.includesInTotal(provider) },

@@ -468,7 +468,7 @@ extension UsageDashboardView {
                     .frame(width: 6, height: 6)
                 Text(ext.scope.label)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Ember.primary)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 7, weight: .bold))
                     .foregroundStyle(Ember.label)

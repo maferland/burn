@@ -77,6 +77,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.setActivationPolicy(.accessory)
+        settings.appearance.apply()
         registry.startAutoRefresh(intervalMinutes: settings.refreshIntervalMinutes)
     }
 }

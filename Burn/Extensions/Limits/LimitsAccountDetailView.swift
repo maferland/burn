@@ -42,7 +42,7 @@ struct LimitsAccountDetailView: View {
 
             Text(editor.isNew ? "Add account" : (editor.existing?.label ?? "Account"))
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
@@ -113,10 +113,10 @@ struct LimitsAccountDetailView: View {
                 content()
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Ember.primary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
-                    .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Ember.recess(0.3), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(

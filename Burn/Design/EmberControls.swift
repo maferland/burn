@@ -13,7 +13,7 @@ struct EmberSegmented<Value: Hashable>: View {
                 Button { withAnimation(EmberMotion.pill) { selection = option.value } } label: {
                     Text(option.label)
                         .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(isActive ? Color.white : Ember.caption)
+                        .foregroundStyle(isActive ? Ember.primary : Ember.caption)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background {
@@ -42,9 +42,9 @@ struct EmberToggle: View {
         Button { isOn.toggle() } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
                 Capsule()
-                    .fill(isOn ? Ember.accent : Color.white.opacity(0.16))
+                    .fill(isOn ? Ember.accent : Ember.fill(0.16))
                 Circle()
-                    .fill(isOn ? Ember.surface : Color.white.opacity(0.78))
+                    .fill(isOn ? Ember.surface : Ember.fill(0.78))
                     .frame(width: 15, height: 15)
                     .padding(2)
             }
@@ -66,7 +66,7 @@ struct EmberSettingRow<Content: View>: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Ember.primary)
                 if let detail {
                     Text(detail)
                         .font(.system(size: 10.5))
@@ -108,7 +108,7 @@ struct EmberFieldRow<Content: View>: View {
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+                .background(Ember.recess(0.35), in: RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
                         .strokeBorder(Ember.accent.opacity(0.16), lineWidth: 1)
@@ -132,7 +132,7 @@ struct EmberStoredBadge: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
+        .background(Ember.recess(0.35), in: RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Ember.accent.opacity(0.16), lineWidth: 1)

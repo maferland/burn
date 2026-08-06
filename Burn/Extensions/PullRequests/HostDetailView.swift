@@ -48,7 +48,7 @@ struct HostDetailView: View {
 
             Text(editor.isNew ? "Add host" : editor.config.label)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Ember.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
@@ -153,7 +153,7 @@ struct HostDetailView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
         .background(
-            filled ? Ember.accent.opacity(0.08) : Color.black.opacity(0.3),
+            filled ? Ember.accent.opacity(0.08) : Ember.recess(0.3),
             in: RoundedRectangle(cornerRadius: 8)
         )
         .overlay(
@@ -170,10 +170,10 @@ struct HostDetailView: View {
                 content()
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Ember.primary)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
-                    .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Ember.recess(0.3), in: RoundedRectangle(cornerRadius: 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(
