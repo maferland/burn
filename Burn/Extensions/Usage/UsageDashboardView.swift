@@ -129,22 +129,27 @@ struct UsageDashboardView: View {
         let cost = day?.totalCost ?? 0
         let totalIO = (day?.inputTokens ?? 0) + (day?.outputTokens ?? 0)
 
-        if cost <= 0 {
-            EmberEmptyHero(
-                title: isViewingToday || day == nil ? "Nothing burned yet" : "Nothing burned that day",
-                footnote: lastKnownLine
-            )
-        } else {
-            Group {
-                if settings.displayMode == .tokens {
-                    EmberHero(primary: Formatters.tokensCompact(totalIO)) { heroCaption }
-                } else {
-                    EmberHero(cost: cost) { heroCaption }
+        Group {
+            if cost <= 0 {
+                EmberEmptyHero(
+                    title: isViewingToday || day == nil ? "Nothing burned yet" : "Nothing burned that day",
+                    footnote: lastKnownLine
+                )
+            } else {
+                Group {
+                    if settings.displayMode == .tokens {
+                        EmberHero(primary: Formatters.tokensCompact(totalIO)) { heroCaption }
+                    } else {
+                        EmberHero(cost: cost) { heroCaption }
+                    }
                 }
+                .onTapGesture { if let day { toggleDetail(.day(day.id)) } }
+                .pointingHandCursor()
+                // The day's first session landing is the one moment worth a beat.
+                .transition(.emberRise)
             }
-            .onTapGesture { if let day { toggleDetail(.day(day.id)) } }
-            .pointingHandCursor()
         }
+        .animation(.easeOut(duration: 0.25), value: cost <= 0)
     }
 
     /// The empty hero still carries a real number, just an older one — never a bare zero.
@@ -260,7 +265,8 @@ struct UsageDashboardView: View {
                                 tokens: model.inputTokens + model.outputTokens,
                                 mode: settings.displayMode
                             ),
-                            emphasis: index == 0 ? 1.0 : (index == 1 ? 0.55 : 0.4)
+                            emphasis: index == 0 ? 1.0 : (index == 1 ? 0.55 : 0.4),
+                            row: index
                         )
                     }
                 }
@@ -527,7 +533,7 @@ extension UsageDashboardView {
                     )
                 ) {
                     VStack(spacing: 10) {
-                        ForEach(rows, id: \.provider) { row in
+                        ForEach(Array(rows.enumerated()), id: \.element.provider) { index, row in
                             EmberBarRow(
                                 label: row.provider.displayName,
                                 fraction: leader > 0 ? providerMetric(row) / leader : 0,
@@ -535,7 +541,8 @@ extension UsageDashboardView {
                                     cost: row.cost, tokens: row.tokens, mode: settings.displayMode
                                 ),
                                 emphasis: providerMetric(row) == leader ? 1.0 : 0.55,
-                                color: row.provider.accent
+                                color: row.provider.accent,
+                                row: index
                             )
                         }
                     }

@@ -129,13 +129,15 @@ struct LimitsDashboardView: View {
         EmberSection(title: snapshot.account.label, trailing: snapshot.planLabel) {
             VStack(spacing: 10) {
                 // Scarcest window first: that's the one that decides when work stops.
-                ForEach(snapshot.windows.sorted { $0.remainingPercent < $1.remainingPercent }) { window in
+                let windows = snapshot.windows.sorted { $0.remainingPercent < $1.remainingPercent }
+                ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
                     EmberBarRow(
                         label: window.kind.label,
                         fraction: window.remainingPercent / 100,
                         value: Formatters.percent(window.remainingPercent),
                         emphasis: window.remainingPercent <= 20 ? 0.95 : 0.55,
-                        color: snapshot.account.provider.accent
+                        color: snapshot.account.provider.accent,
+                        row: index
                     )
                 }
                 if let spend = snapshot.spend, let fraction = spend.fraction {
@@ -144,7 +146,8 @@ struct LimitsDashboardView: View {
                         fraction: 1 - fraction,
                         value: Formatters.percent((1 - fraction) * 100),
                         emphasis: 0.55,
-                        color: snapshot.account.provider.accent
+                        color: snapshot.account.provider.accent,
+                        row: windows.count
                     )
                 }
                 if let note = note(for: snapshot) {
