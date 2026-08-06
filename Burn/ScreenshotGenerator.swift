@@ -4,7 +4,13 @@ import ClaudeUsageKit
 
 enum ScreenshotGenerator {
     @MainActor static func generate(outputPath: String, scale: CGFloat = 3.0) {
-        let settings = SettingsStore()
+        // Its own domain, seeded from the real one: a screenshot reads your settings, never writes them.
+        let scratch = UserDefaults(suiteName: "burn.screenshot.settings")!
+        scratch.removePersistentDomain(forName: "burn.screenshot.settings")
+        for key in [SettingsStore.displayModeKey, SettingsStore.refreshIntervalKey] {
+            if let value = UserDefaults.standard.object(forKey: key) { scratch.set(value, forKey: key) }
+        }
+        let settings = SettingsStore(defaults: scratch)
         if let mode = ProcessInfo.processInfo.environment["BURN_DISPLAY_MODE"] {
             switch mode.lowercased() {
             case "tokens": settings.displayMode = .tokens
@@ -55,7 +61,9 @@ enum ScreenshotGenerator {
             registry.activeTabId = activeId
         }
         applyState(service: service, prs: prExt, limits: limitsService, days: days)
-        let view = MenuBarView(service: service, settings: settings, registry: registry)
+        let view = MenuBarView(
+            service: service, settings: settings, registry: registry, providers: mockProviders()
+        )
             .background(Ember.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .padding(6)
@@ -164,6 +172,16 @@ enum ScreenshotGenerator {
                 hostLabel: "git.example.com"
             ),
         ]
+    }
+
+    /// Claude connected, Codex signed in but not yet connected, so the list shows both states.
+    @MainActor private static func mockProviders() -> ProviderStore {
+        let defaults = UserDefaults(suiteName: "burn.screenshot.providers")!
+        defaults.removePersistentDomain(forName: "burn.screenshot.providers")
+        let store = ProviderStore(defaults: defaults, signedIn: { _, _ in true })
+        store.connect(.claude)
+        store.disconnect(.codex)
+        return store
     }
 
     /// Isolated defaults and a canned token read, so screenshots never depend on the real config.

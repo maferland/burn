@@ -12,6 +12,9 @@ enum Ember {
 
     static func text(_ opacity: Double) -> Color { Color.white.opacity(opacity) }
 
+    /// Connection health, which is a yes/no rather than a quantity, so it sits outside the ramp.
+    static let healthy = Color(red: 0.196, green: 0.843, blue: 0.294)
+
     /// The one place amber gives way: destructive actions and error states.
     static let danger = Color(red: 1.0, green: 0.412, blue: 0.380)
     static let dangerBright = Color(red: 1.0, green: 0.541, blue: 0.514)

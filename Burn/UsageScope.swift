@@ -34,11 +34,19 @@ enum UsageScope: Hashable, Identifiable {
 struct ProviderUsage {
     let claude: UsageService
     let codex: CodexUsageService
+    /// nil keeps the pre-Providers behaviour, which the tests and the screenshot mocks rely on.
+    var counted: [Provider]?
 
+    /// A provider has to be both counted and actually reporting before it earns a row.
     var availableProviders: [Provider] {
-        var providers: [Provider] = [.claude]
-        if !codex.response.isEmpty { providers.append(.codex) }
-        return providers
+        let allowed = counted ?? Provider.allCases
+        return Provider.allCases.filter { provider in
+            guard allowed.contains(provider) else { return false }
+            switch provider {
+            case .claude: return true
+            case .codex:  return !codex.response.isEmpty
+            }
+        }
     }
 
     var availableScopes: [UsageScope] {

@@ -6,6 +6,7 @@ struct MenuBarView: View {
     let service: UsageService
     let settings: SettingsStore
     let registry: ExtensionRegistry
+    let providers: ProviderStore
 
     @State private var showSettings = ProcessInfo.processInfo.environment["BURN_SETTINGS"] != nil
     @State private var sessionID = UUID()
@@ -20,7 +21,10 @@ struct MenuBarView: View {
                     detail
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else {
-                    SettingsPanel(settings: settings, registry: registry, onClose: closeSettings)
+                    SettingsPanel(
+                        settings: settings, registry: registry,
+                        providers: providers, onClose: closeSettings
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
             } else if enabled.isEmpty {
