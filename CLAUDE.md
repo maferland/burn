@@ -17,6 +17,15 @@ open Burn.app
 
 Copying the binary invalidates the bundle signature, and macOS SIGKILLs an invalid bundle — exit 137, `Killed: 9`, no output. Signing with the release identity instead of ad-hoc (`--sign -`) also keeps Keychain items readable across rebuilds; an ad-hoc signature changes every build, so each build is a stranger to items the last one wrote.
 
+## Icons
+
+`assets/*.svg` are the sources; every PNG under `assets/` and `Burn/Resources/` is generated. After
+editing an SVG run `./scripts/render_icons.sh` (needs `brew install librsvg`) and commit the PNGs, so
+a normal build and `make app` never need a rasterizer.
+
+The menu bar glyph is deliberately flat and single-tone: macOS tints template images by their alpha
+mask, so the gradient and ember core in the full mark would be thrown away.
+
 ## Homebrew tap
 
 There is a `burn` cask in homebrew-core (different app), so the tap-prefixed name is required:
