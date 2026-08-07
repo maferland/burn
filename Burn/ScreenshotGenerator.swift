@@ -4,11 +4,13 @@ import ClaudeUsageKit
 
 enum ScreenshotGenerator {
     @MainActor static func generate(outputPath: String, scale: CGFloat = 3.0) {
-        // Its own domain, seeded from the real one: a screenshot reads your settings, never writes them.
+        // Named explicitly: as the bare debug binary, `.standard` resolves to "Burn" (the process
+        // name), not this bundle id, so it would silently seed from the wrong preferences.
+        let real = UserDefaults(suiteName: "com.maferland.burn") ?? .standard
         let scratch = UserDefaults(suiteName: "burn.screenshot.settings")!
         scratch.removePersistentDomain(forName: "burn.screenshot.settings")
         for key in [SettingsStore.displayModeKey, SettingsStore.refreshIntervalKey] {
-            if let value = UserDefaults.standard.object(forKey: key) { scratch.set(value, forKey: key) }
+            if let value = real.object(forKey: key) { scratch.set(value, forKey: key) }
         }
         let settings = SettingsStore(defaults: scratch)
         let appearance: AppearanceChoice =
@@ -128,6 +130,15 @@ enum ScreenshotGenerator {
             service.errorMessage = "~/.claude/projects isn't readable. Grant Full Disk Access, or point Burn at another home."
             prs.prs = []
             prs.errorMessage = "git.example.com returned 401. The token may have expired."
+            limits.response = LimitsResponse(accounts: [
+                AccountSnapshot(
+                    account: LimitsAccount(
+                        provider: .claude, label: "personal", homePath: nil, isAutoDetected: true
+                    ),
+                    planLabel: nil, windows: [], spend: nil, capturedAt: nil, source: .api,
+                    failure: LimitsFailure(kind: .network, detail: "api.anthropic.com timed out")
+                ),
+            ])
         default:
             break
         }
