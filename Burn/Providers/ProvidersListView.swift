@@ -63,7 +63,7 @@ struct ProvidersListView: View {
         } label: {
             HStack(spacing: 10) {
                 Circle()
-                    .fill(connected ? provider.accent : .clear)
+                    .fill(dotColor(for: provider))
                     .strokeBorder(connected ? .clear : Ember.text(0.25), lineWidth: 1.5)
                     .frame(width: 7, height: 7)
                 VStack(alignment: .leading, spacing: 1) {
@@ -76,7 +76,6 @@ struct ProvidersListView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 6)
-                healthDot(provider)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Ember.text(hovered == provider ? 0.5 : 0.35))
@@ -98,16 +97,13 @@ struct ProvidersListView: View {
         }
     }
 
-    /// Green reads, amber is connected but can't find a signed-in CLI where it was told to look.
-    @ViewBuilder
-    private func healthDot(_ provider: Provider) -> some View {
+    /// One dot per row: green once it reads, red when connected but unreachable, hollow otherwise.
+    /// Health used to get a second dot of its own; the subtitle already names the problem in words.
+    private func dotColor(for provider: Provider) -> Color {
         switch store.health(provider) {
-        case .ok:
-            Circle().fill(Ember.healthy).frame(width: 7, height: 7)
-        case .unreachable:
-            Circle().fill(Ember.accentDeep).frame(width: 7, height: 7)
-        case .disconnected:
-            EmptyView()
+        case .ok:           return Ember.healthy
+        case .unreachable:  return Ember.accentDeep
+        case .disconnected: return .clear
         }
     }
 
