@@ -179,6 +179,15 @@ enum ScreenshotGenerator {
                 provider: .forgejo,
                 hostLabel: "git.example.com"
             ),
+            // Stale and open — the row this bug used to drop from the "Today" list.
+            PullRequest(
+                url: "https://github.com/maferland/burn/pull/1",
+                title: "Week navigation keyboard shortcuts",
+                createdAt: cal.date(byAdding: .day, value: -9, to: now)!,
+                repository: .init(nameWithOwner: "maferland/burn"),
+                state: "OPEN",
+                closedAt: nil
+            ),
         ]
     }
 

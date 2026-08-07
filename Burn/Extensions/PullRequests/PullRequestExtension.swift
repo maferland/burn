@@ -61,7 +61,7 @@ final class PullRequestExtension: BurnExtension {
 
             // One host failing shouldn't blank out the others' PRs.
             let fetched = results.compactMap(\.result)
-            self.prs = fetched.flatMap(\.prs).sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
+            self.prs = fetched.flatMap(\.prs).sorted { $0.effectiveDate > $1.effectiveDate }
             self.truncated = fetched.contains(where: \.truncated)
             let errors = results.compactMap(\.errorMessage)
             self.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
@@ -133,22 +133,17 @@ final class PullRequestExtension: BurnExtension {
         AnyView(HostsListView(ext: self))
     }
 
-    // For open PRs: anchor on createdAt. For merged: anchor on mergedAt.
-    private func effectiveDate(_ pr: PullRequest) -> Date {
-        pr.mergedAt ?? pr.createdAt
-    }
-
     var todayPRs: [PullRequest] {
         let cal = Calendar.current
         let today = Date()
-        return prs.filter { cal.isDate(effectiveDate($0), inSameDayAs: today) }
+        return prs.filter { cal.isDate($0.effectiveDate, inSameDayAs: today) }
     }
 
     var weekPRs: [PullRequest] {
         let data = usageService.usageData
         guard data.weekStart != data.weekEnd else { return todayPRs }
         let start = Calendar.current.startOfDay(for: data.weekStart)
-        return prs.filter { effectiveDate($0) >= start }
+        return prs.filter { $0.effectiveDate >= start }
     }
 
     var monthPRs: [PullRequest] {
@@ -156,13 +151,25 @@ final class PullRequestExtension: BurnExtension {
         let now = Date()
         let monthComps = cal.dateComponents([.year, .month], from: now)
         return prs.filter {
-            let prComps = cal.dateComponents([.year, .month], from: effectiveDate($0))
+            let prComps = cal.dateComponents([.year, .month], from: $0.effectiveDate)
             return prComps.year == monthComps.year && prComps.month == monthComps.month
         }
     }
 
     private func openPRs(in list: [PullRequest]) -> [PullRequest] { list.filter { !$0.isMerged } }
     private func mergedPRs(in list: [PullRequest]) -> [PullRequest] { list.filter { $0.isMerged } }
+
+    /// An open PR is open regardless of when it was opened, so unlike the counts above this list
+    /// deliberately isn't scoped to a period — that's the whole fix.
+    var openPRs: [PullRequest] { openPRs(in: prs) }
+
+    func mergedPRs(for period: PRPeriod) -> [PullRequest] {
+        switch period {
+        case .today: return mergedPRs(in: todayPRs)
+        case .week:  return mergedPRs(in: weekPRs)
+        case .month: return mergedPRs(in: monthPRs)
+        }
+    }
 
     var todayCount: Int { todayPRs.count }
     var weekCount: Int { weekPRs.count }
@@ -231,7 +238,16 @@ struct PullRequestTabView: View {
 
     @Environment(\.openBurnSettings) private var openSettings
 
-    @State private var selectedPeriod: PRPeriod = .week
+    @State private var selectedPeriod: PRPeriod = PullRequestTabView.initialPeriod()
+
+    /// Screenshot knob, same family as BURN_ACTIVE_TAB and BURN_DAY_OFFSET.
+    private static func initialPeriod() -> PRPeriod {
+        switch ProcessInfo.processInfo.environment["BURN_PR_PERIOD"] {
+        case "today": return .today
+        case "month": return .month
+        default:      return .week
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -383,12 +399,10 @@ struct PullRequestTabView: View {
 
     // MARK: - Period
 
+    /// Open PRs sit outside the period entirely — five open from last week don't vanish just
+    /// because nothing merged today. Only the merged half is scoped to the selected period.
     private var filteredPRs: [PullRequest] {
-        switch selectedPeriod {
-        case .today: return ext.todayPRs
-        case .week:  return ext.weekPRs
-        case .month: return ext.monthPRs
-        }
+        (ext.openPRs + ext.mergedPRs(for: selectedPeriod)).sorted { $0.effectiveDate > $1.effectiveDate }
     }
 
     private var periodAverage: Double? {
