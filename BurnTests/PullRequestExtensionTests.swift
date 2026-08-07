@@ -58,6 +58,24 @@ final class PullRequestExtensionTests: XCTestCase {
         XCTAssertEqual(ext.openPRs.count, 5, "but the list itself must still see all five")
     }
 
+    /// No PR history exists before the current month, so "typical" is a run rate off
+    /// month-to-date rather than a real historical average — this locks in that math.
+    func testTypicalMergedCountsAreARunRateOffMonthToDate() {
+        let ext = makeExtension()
+        ext.prs = [
+            pr("today-1", opened: 0, merged: true),
+            pr("today-2", opened: 0, merged: true),
+        ]
+
+        let elapsed = Double(Calendar.current.component(.day, from: Date()))
+        let daysInMonth = Double(Calendar.current.range(of: .day, in: .month, for: Date())!.count)
+        let expectedRate = 2.0 / elapsed
+
+        XCTAssertEqual(ext.typicalDayMergedCount!, expectedRate, accuracy: 0.0001)
+        XCTAssertEqual(ext.typicalWeekMergedCount!, expectedRate * 7, accuracy: 0.0001)
+        XCTAssertEqual(ext.typicalMonthMergedCount!, expectedRate * daysInMonth, accuracy: 0.0001)
+    }
+
     /// effectiveDate is what both the fetch sort and the period filters key off.
     func testEffectiveDatePrefersMergedOverCreated() {
         let open = pr("open", opened: 3)

@@ -142,3 +142,44 @@ struct EmberStoredBadge: View {
         )
     }
 }
+
+/// One of the three Today/Week/Month tiles on the PR tab. Selecting a card both scopes the list
+/// and sets what the hero above reads — the card row replaced the old segmented pill (Turn 11).
+struct EmberScopeCard: View {
+    let label: String
+    let count: Int
+    let costPerPR: Double?
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isSelected ? Ember.primary : Ember.caption)
+                Text("\(count)")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(isSelected ? Ember.primary : Ember.text(0.7))
+                    .monospacedDigit()
+                Text(costPerPR.map { "\(Formatters.costRounded($0))/PR" } ?? "—")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(isSelected ? Ember.text(0.7) : Ember.caption)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                isSelected ? Ember.accent.opacity(0.14) : Ember.fill(0.04),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? Ember.accent.opacity(0.5) : Ember.hairline, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+    }
+}

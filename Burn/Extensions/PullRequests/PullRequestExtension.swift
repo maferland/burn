@@ -192,6 +192,24 @@ final class PullRequestExtension: BurnExtension {
     var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: mergedPRs(in: weekPRs).count) }
     var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: mergedPRs(in: monthPRs).count) }
 
+    /// `refresh()` only pulls PR history back to the start of the current month, so there's no
+    /// cross-month data to average. "Typical" here is a run rate off month-to-date instead —
+    /// how many PRs merge per day this month, scaled to the period.
+    private var monthToDateMergedRate: Double? {
+        let elapsed = Calendar.current.component(.day, from: Date())
+        guard elapsed > 0 else { return nil }
+        return Double(monthMergedCount) / Double(elapsed)
+    }
+
+    var typicalDayMergedCount: Double? { monthToDateMergedRate }
+    var typicalWeekMergedCount: Double? { monthToDateMergedRate.map { $0 * 7 } }
+    var typicalMonthMergedCount: Double? {
+        guard let rate = monthToDateMergedRate,
+              let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count
+        else { return nil }
+        return rate * Double(daysInMonth)
+    }
+
     var tabGlyph: TabGlyph { .symbol("arrow.triangle.branch") }
 
     var settingsSubtitle: String? {
@@ -282,7 +300,8 @@ struct PullRequestTabView: View {
                 banner("Hit a host's result cap, so counts may be capped.", symbol: "exclamationmark.circle", color: Ember.accent)
             }
             hero
-            costTrack
+            scopeCards
+            paceTrack
             listSection
         }
     }
@@ -313,40 +332,68 @@ struct PullRequestTabView: View {
         }
     }
 
-    /// Period average against the month average, so a hot week reads as hot.
-    @ViewBuilder
-    private var costTrack: some View {
-        let current = periodAverage ?? 0
-        let baseline = ext.avgCostPerPRMonth ?? 0
-        let scale = max(current, baseline) * 1.25
-        EmberTrack(
-            fill: scale > 0 ? current / scale : 0,
-            tick: scale > 0 && baseline > 0 ? baseline / scale : nil,
-            leading: "\(periodLabel) \(Formatters.costRounded(current))",
-            trailing: baseline > 0 ? "month average \(Formatters.costRounded(baseline))" : ""
+    // MARK: - Scope cards
+
+    /// Today/Week/Month tiles, replacing the old segmented pill (Turn 11) so the switcher itself
+    /// shows count + cost-per-PR instead of a bare label.
+    private var scopeCards: some View {
+        HStack(spacing: 8) {
+            scopeCard(label: "Today", period: .today, count: ext.todayMergedCount, costPerPR: ext.avgCostPerPR)
+            scopeCard(label: "Week", period: .week, count: ext.weekMergedCount, costPerPR: ext.avgCostPerPRWeek)
+            scopeCard(label: Formatters.monthLabel(Date()), period: .month, count: ext.monthMergedCount, costPerPR: ext.avgCostPerPRMonth)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+    }
+
+    private func scopeCard(label: String, period: PRPeriod, count: Int, costPerPR: Double?) -> some View {
+        EmberScopeCard(
+            label: label,
+            count: count,
+            costPerPR: costPerPR,
+            isSelected: selectedPeriod == period,
+            onSelect: { withAnimation(EmberMotion.pill) { selectedPeriod = period } }
         )
-        .padding(.top, 16)
-        .padding(.bottom, 18)
+    }
+
+    /// Repurposes the pace-bar pattern from the cost track: selected scope's merged count against
+    /// its own typical baseline, the same shape Usage's pace track uses for cost.
+    @ViewBuilder
+    private var paceTrack: some View {
+        let current = Double(mergedCount)
+        if let typical = typicalCount, typical > 0 {
+            let scale = max(current, typical) * 1.25
+            EmberTrack(
+                fill: scale > 0 ? current / scale : 0,
+                tick: scale > 0 ? typical / scale : nil,
+                leading: "\(periodLabel) \(mergedCount)",
+                trailing: "typical \(periodNoun) \(formatTypicalCount(typical))"
+            )
+            .padding(.top, 14)
+            .padding(.bottom, 16)
+        } else {
+            Spacer(minLength: 14)
+        }
+    }
+
+    /// A day's run rate is often well under 1 PR — rounding that to "0" reads as "no baseline"
+    /// instead of "a small one", so keep a decimal below 1.
+    private func formatTypicalCount(_ value: Double) -> String {
+        value < 1 ? String(format: "%.1f", value) : "\(Int(value.rounded()))"
     }
 
     // MARK: - List
 
     private var listSection: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Pull requests")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .tracking(1.0)
-                    .foregroundStyle(Ember.label)
-                Spacer()
-                EmberSegmented(
-                    options: [("Today", PRPeriod.today), ("Week", .week), ("Month", .month)],
-                    selection: $selectedPeriod
-                )
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
+            Text("Pull requests")
+                .font(.system(size: 10.5, weight: .bold))
+                .tracking(1.0)
+                .foregroundStyle(Ember.label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
 
             prList
         }
@@ -429,6 +476,22 @@ struct PullRequestTabView: View {
         case .today: return ext.todayOpenCount
         case .week:  return ext.weekOpenCount
         case .month: return ext.monthOpenCount
+        }
+    }
+
+    private var typicalCount: Double? {
+        switch selectedPeriod {
+        case .today: return ext.typicalDayMergedCount
+        case .week:  return ext.typicalWeekMergedCount
+        case .month: return ext.typicalMonthMergedCount
+        }
+    }
+
+    private var periodNoun: String {
+        switch selectedPeriod {
+        case .today: return "day"
+        case .week:  return "week"
+        case .month: return "month"
         }
     }
 
