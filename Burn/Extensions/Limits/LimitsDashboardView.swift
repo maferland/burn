@@ -123,6 +123,11 @@ struct LimitsDashboardView: View {
         return "\(subject) is \(Formatters.percent(window.effectiveUsedPercent)) through its \(window.kind.phrase)"
     }
 
+    /// Same 20%-remaining line the emphasis bump already uses, so a bar's color and weight agree.
+    private func nearCapColor(remaining: Double, fallback: Color) -> Color {
+        remaining <= 20 ? Ember.danger : fallback
+    }
+
     // MARK: - Per account
 
     private func section(for snapshot: AccountSnapshot) -> some View {
@@ -136,17 +141,20 @@ struct LimitsDashboardView: View {
                         fraction: window.remainingPercent / 100,
                         value: Formatters.percent(window.remainingPercent),
                         emphasis: window.remainingPercent <= 20 ? 0.95 : 0.55,
-                        color: snapshot.account.provider.accent,
+                        color: nearCapColor(remaining: window.remainingPercent, fallback: snapshot.account.provider.accent),
+                        valueColor: nearCapColor(remaining: window.remainingPercent, fallback: Ember.primary),
                         row: index
                     )
                 }
                 if let spend = snapshot.spend, let fraction = spend.fraction {
+                    let remaining = (1 - fraction) * 100
                     EmberBarRow(
                         label: "Credits",
                         fraction: 1 - fraction,
-                        value: Formatters.percent((1 - fraction) * 100),
+                        value: Formatters.percent(remaining),
                         emphasis: 0.55,
-                        color: snapshot.account.provider.accent,
+                        color: nearCapColor(remaining: remaining, fallback: snapshot.account.provider.accent),
+                        valueColor: nearCapColor(remaining: remaining, fallback: Ember.primary),
                         row: windows.count
                     )
                 }

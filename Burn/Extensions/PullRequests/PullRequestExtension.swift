@@ -207,6 +207,9 @@ final class PullRequestExtension: BurnExtension {
 
     func statusLine() -> String? {
         guard lastRefresh != nil else { return nil }
+        // A total failure has nothing to report; let the error card speak instead of claiming
+        // "nothing merged" as if the read actually succeeded.
+        if errorMessage != nil, prs.isEmpty { return nil }
         let merged = mergedPRs(in: todayPRs)
         guard let latest = merged.compactMap(\.mergedAt).max() else {
             let open = todayOpenCount

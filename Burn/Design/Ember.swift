@@ -405,6 +405,8 @@ struct EmberBarRow: View {
     let emphasis: Double
     /// Defaults to amber; the Limits tab passes each provider's own accent.
     var color: Color = Ember.accent
+    /// Overrides the value text's color too; Limits reddens both together near a cap.
+    var valueColor: Color = Ember.primary
     /// Position in its group, which is all the stagger needs to know.
     var row: Int = 0
 
@@ -431,7 +433,7 @@ struct EmberBarRow: View {
             .frame(height: 6)
             Text(value)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Ember.primary)
+                .foregroundStyle(valueColor)
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .animation(EmberMotion.number, value: value)
