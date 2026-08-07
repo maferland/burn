@@ -522,11 +522,13 @@ struct EmberContextStrip: View {
         .pointingHandCursor()
     }
 
+    /// Dimmer than `Ember.primary` — the strip lost its chevrons, so the totals should read as
+    /// inert numbers you can still tap open, not as a live nav control.
     private func total(_ item: LabeledTotal, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Text(item.label).foregroundStyle(Ember.caption)
-                Text(item.value).foregroundStyle(Ember.primary).fontWeight(.semibold)
+                Text(item.value).foregroundStyle(Ember.text(0.85)).fontWeight(.semibold)
             }
             .font(.system(size: 11.5))
             .monospacedDigit()

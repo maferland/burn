@@ -167,14 +167,13 @@ struct EmberEmptyHero: View {
     }
 }
 
-/// Day paging, shown once a closed day is on screen — the slot the live-rate dot will own for today.
-struct EmberDayNav: View {
+/// Pages whichever period (day/week/month) is selected — the one nav row the card now has.
+struct EmberPeriodNav: View {
     let label: String
     let canGoBack: Bool
     let canGoForward: Bool
     let onBack: () -> Void
     let onForward: () -> Void
-    let onToday: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
@@ -184,15 +183,7 @@ struct EmberDayNav: View {
                 .foregroundStyle(Ember.text(0.7))
                 .monospacedDigit()
             chevron("chevron.right", enabled: canGoForward, action: onForward)
-            Spacer(minLength: 8)
-            Button("Today", action: onToday)
-                .buttonStyle(.plain)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(Ember.accent)
-                .pointingHandCursor()
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
     }
 
     private func chevron(_ icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {

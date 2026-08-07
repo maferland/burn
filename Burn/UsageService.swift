@@ -56,25 +56,18 @@ final class UsageService: @unchecked Sendable {
 
     // MARK: - Disk cache
 
-    /// The last 30 days with spend, today excluded so the mean stays a baseline rather than a moving target.
-    private var baselineDays: ArraySlice<DailyUsage> {
-        let today = UsageData.dateString(from: Date())
-        return (lastResponse?.daily ?? [])
-            .filter { $0.date != today && $0.totalCost > 0 }
-            .suffix(30)
+    private var typicalSamples: [TypicalPeriod.Sample] {
+        (lastResponse?.daily ?? []).map {
+            .init(date: $0.date, cost: $0.totalCost, tokens: $0.inputTokens + $0.outputTokens)
+        }
     }
 
-    var typicalDayCost: Double {
-        let past = baselineDays
-        guard !past.isEmpty else { return 0 }
-        return past.reduce(0) { $0 + $1.totalCost } / Double(past.count)
-    }
-
-    var typicalDayTokens: Int {
-        let past = baselineDays
-        guard !past.isEmpty else { return 0 }
-        return past.reduce(0) { $0 + $1.inputTokens + $1.outputTokens } / past.count
-    }
+    var typicalDayCost: Double { TypicalPeriod.day(typicalSamples).cost }
+    var typicalDayTokens: Int { TypicalPeriod.day(typicalSamples).tokens }
+    var typicalWeekCost: Double { TypicalPeriod.week(typicalSamples).cost }
+    var typicalWeekTokens: Int { TypicalPeriod.week(typicalSamples).tokens }
+    var typicalMonthCost: Double { TypicalPeriod.month(typicalSamples).cost }
+    var typicalMonthTokens: Int { TypicalPeriod.month(typicalSamples).tokens }
 
     func usageData(weekOffset: Int) -> UsageData {
         guard let response = lastResponse else { return .empty }
