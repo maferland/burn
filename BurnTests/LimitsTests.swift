@@ -274,6 +274,68 @@ final class LimitsTests: XCTestCase {
         XCTAssertEqual(response.accountsNearCap.map(\.account.label), ["edge", "spent"])
     }
 
+    // MARK: - Menu bar
+
+    @MainActor
+    private func extensionShowing(_ accounts: [AccountSnapshot]) -> LimitsExtension {
+        let service = LimitsService(
+            store: LimitsAccountStore(defaults: isolatedDefaults(), detect: { [] }),
+            cacheFile: home.appendingPathComponent("menubar-cache.json")
+        )
+        service.response = LimitsResponse(accounts: accounts)
+        let ext = LimitsExtension(service: service)
+        ext.showsInMenuBar = true
+        return ext
+    }
+
+    /// Text has no readable value, so the rendered literal is pulled back out of its description.
+    @MainActor
+    private func segmentText(_ ext: LimitsExtension) -> String? {
+        guard let segment = ext.menuBarSegment() else { return nil }
+        let description = String(describing: segment)
+        guard let match = description.range(of: #"(?<=: \")[^"]+(?=\")"#, options: .regularExpression) else {
+            return description
+        }
+        return String(description[match])
+    }
+
+    private func spending(_ used: Double, of limit: Double?) -> AccountSnapshot {
+        AccountSnapshot(
+            account: account(), planLabel: "Enterprise", windows: [],
+            spend: SpendSnapshot(usedDollars: used, limitDollars: limit),
+            capturedAt: Date(), source: .api, failure: nil
+        )
+    }
+
+    /// A usage-based seat reports no windows at all, which used to make the toggle look broken.
+    @MainActor
+    func testMenuBarFallsBackToSpendWhenNoWindowsCameBack() {
+        XCTAssertEqual(segmentText(extensionShowing([spending(1_098, of: 10_000)])), "◔ 89%")
+    }
+
+    @MainActor
+    func testMenuBarShowsDollarsWhenTheSeatHasNoCap() {
+        XCTAssertEqual(segmentText(extensionShowing([spending(1_098, of: nil)])), "◔ $1,098")
+    }
+
+    @MainActor
+    func testMenuBarPrefersAWindowOverSpend() {
+        let windowed = AccountSnapshot(
+            account: account(), planLabel: "Max",
+            windows: [LimitWindow(kind: .week, usedPercent: 30, resetsAt: nil)],
+            spend: SpendSnapshot(usedDollars: 5, limitDollars: 100),
+            capturedAt: Date(), source: .api, failure: nil
+        )
+        XCTAssertEqual(segmentText(extensionShowing([windowed])), "◔ 70%")
+    }
+
+    @MainActor
+    func testMenuBarStaysEmptyWhenTheToggleIsOff() {
+        let ext = extensionShowing([spending(1_098, of: 10_000)])
+        ext.showsInMenuBar = false
+        XCTAssertNil(ext.menuBarSegment())
+    }
+
     func testProviderAccentsAreDistinct() {
         XCTAssertNotEqual(Provider.claude.accent, Provider.codex.accent)
         XCTAssertEqual(Provider.claude.accent, Ember.accent)
