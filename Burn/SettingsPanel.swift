@@ -171,7 +171,8 @@ struct SettingsPanel: View {
                     ))
                 }
                 if registry.isEnabled(ext.id), let sub = ext.settingsView() {
-                    sub
+                    // Fades rather than pops, so the panel's height change reads as one movement.
+                    sub.transition(.opacity)
                 }
             }
         }
