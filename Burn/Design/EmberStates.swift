@@ -138,35 +138,6 @@ struct EmberErrorCard: View {
     }
 }
 
-/// Stands in for the hero when there is nothing to count, carrying the last real number instead of a zero.
-struct EmberEmptyHero: View {
-    let title: String
-    var footnote: String?
-
-    var body: some View {
-        HStack(spacing: 11) {
-            Image(systemName: "flame")
-                .font(.system(size: 21, weight: .light))
-                .foregroundStyle(Ember.accent.opacity(0.35))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Ember.text(0.82))
-                if let footnote {
-                    Text(footnote)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Ember.caption)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 6)
-    }
-}
-
 /// Pages whichever period (day/week/month) is selected — the one nav row the card now has.
 struct EmberPeriodNav: View {
     let label: String

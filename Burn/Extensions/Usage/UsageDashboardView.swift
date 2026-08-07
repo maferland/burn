@@ -146,27 +146,21 @@ struct UsageDashboardView: View {
 
     // MARK: - Hero
 
+    /// Always the same hero shape, empty or not — a $0 that keeps its height reads calmer while
+    /// paging than swapping to a whole different, shorter card every time a day comes up dry.
     @ViewBuilder
     private var hero: some View {
         let totals = periodTotals
+        let accent = totals.cost > 0 ? Ember.accent : Ember.accent.opacity(0.35)
         Group {
-            if totals.cost <= 0 {
-                EmberEmptyHero(title: emptyHeroTitle, footnote: lastKnownLine)
+            if settings.displayMode == .tokens {
+                EmberHero(primary: Formatters.tokensCompact(totals.tokens), accentColor: accent) { heroCaption }
             } else {
-                Group {
-                    if settings.displayMode == .tokens {
-                        EmberHero(primary: Formatters.tokensCompact(totals.tokens)) { heroCaption }
-                    } else {
-                        EmberHero(cost: totals.cost) { heroCaption }
-                    }
-                }
-                .onTapGesture { toggleDetail(currentDetailScope) }
-                .pointingHandCursor()
-                // The day's first session landing is the one moment worth a beat.
-                .transition(.emberRise)
+                EmberHero(cost: totals.cost, accentColor: accent) { heroCaption }
             }
         }
-        .animation(.easeOut(duration: 0.25), value: totals.cost <= 0)
+        .onTapGesture { if totals.cost > 0 { toggleDetail(currentDetailScope) } }
+        .pointingHandCursor()
     }
 
     private var emptyHeroTitle: String {
@@ -177,33 +171,17 @@ struct UsageDashboardView: View {
         }
     }
 
-    /// The empty hero still carries a real number, just an older one — never a bare zero.
-    private var lastKnownLine: String? {
-        guard let day = ext.providerUsage.lastActiveDay(scope: ext.scope, before: periodAnchorDate) else {
-            return nil
-        }
-        let value = Formatters.formatPrimary(
-            cost: day.totalCost,
-            tokens: day.inputTokens + day.outputTokens,
-            mode: settings.displayMode
-        )
-        return "Last burn \(value) on \(Formatters.dayLabel(day.date))"
-    }
-
-    private var periodAnchorDate: String {
-        switch ext.period {
-        case .day:   return ext.selectedDay?.date ?? UsageData.dateString(from: Date())
-        case .week:  return ext.displayData.last7Days.last?.date ?? UsageData.dateString(from: Date())
-        case .month: return ext.monthData.days.last?.date ?? UsageData.dateString(from: Date())
-        }
-    }
 
     @ViewBuilder
     private var heroCaption: some View {
-        switch ext.period {
-        case .day:   dayCaption
-        case .week:  weekCaption
-        case .month: monthCaption
+        if periodTotals.cost <= 0 {
+            Text(emptyHeroTitle)
+        } else {
+            switch ext.period {
+            case .day:   dayCaption
+            case .week:  weekCaption
+            case .month: monthCaption
+            }
         }
     }
 
@@ -363,7 +341,9 @@ struct UsageDashboardView: View {
     private var modelSection: some View {
         let days = periodDays
         let ranked = ProviderUsage.mergedModelBreakdowns(days).sorted { metric($0) > metric($1) }
-        if !ranked.isEmpty {
+        if ranked.isEmpty {
+            emptyBreakdown
+        } else {
             let leader = ranked.first.map(metric) ?? 0
             EmberSection(title: "By model", trailing: cacheNote(for: days)) {
                 VStack(spacing: 10) {
@@ -382,6 +362,16 @@ struct UsageDashboardView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Fills the by-model/by-provider slot instead of collapsing it to nothing, so the card
+    /// doesn't also jump height there every time a day, week, or month comes up empty.
+    private var emptyBreakdown: some View {
+        EmberSection(title: nil) {
+            Text("Nothing to break down yet")
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.caption)
         }
     }
 
@@ -643,7 +633,9 @@ extension UsageDashboardView {
     var providerSection: some View {
         let rows = periodProviderBreakdown
         let leader = rows.map(providerMetric).max() ?? 0
-        if !rows.isEmpty {
+        if rows.isEmpty {
+            emptyBreakdown
+        } else {
             let totals = periodTotals
             EmberSection(
                 title: "By provider",

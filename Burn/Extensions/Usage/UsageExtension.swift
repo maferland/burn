@@ -161,7 +161,7 @@ final class UsageExtension: BurnExtension {
 
     func menuBarSegment() -> Text? {
         guard service.usageData.lastRefreshDate != .distantPast else { return nil }
-        return Text("🔥 " + String(format: "$%.0f", service.usageData.todayCost))
+        return Text(String(format: "$%.0f", service.usageData.todayCost))
     }
 
     func popoverTab() -> AnyView {

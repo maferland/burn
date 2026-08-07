@@ -279,17 +279,23 @@ struct EmberHero: View {
     let primary: String
     let secondary: String?
     let caption: AnyView
+    /// A bare $0 dims instead of lighting up full-strength, so an empty state reads as "off."
+    var accentColor: Color = Ember.accent
 
-    init(primary: String, secondary: String? = nil, @ViewBuilder caption: () -> some View) {
+    init(
+        primary: String, secondary: String? = nil, accentColor: Color = Ember.accent,
+        @ViewBuilder caption: () -> some View
+    ) {
         self.primary = primary
         self.secondary = secondary
+        self.accentColor = accentColor
         self.caption = AnyView(caption())
     }
 
     /// Money hero: dollars at full size, cents dimmed.
-    init(cost: Double, prefix: String = "", @ViewBuilder caption: () -> some View) {
+    init(cost: Double, prefix: String = "", accentColor: Color = Ember.accent, @ViewBuilder caption: () -> some View) {
         let parts = Formatters.costParts(cost)
-        self.init(primary: prefix + parts.whole, secondary: parts.cents, caption: caption)
+        self.init(primary: prefix + parts.whole, secondary: parts.cents, accentColor: accentColor, caption: caption)
     }
 
     var body: some View {
@@ -300,10 +306,10 @@ struct EmberHero: View {
                 if let secondary {
                     Text(secondary)
                         .font(.system(size: Ember.heroCentsSize, weight: .bold))
-                        .foregroundStyle(Ember.accent.opacity(0.45))
+                        .foregroundStyle(accentColor.opacity(0.45))
                 }
             }
-            .foregroundStyle(Ember.accent)
+            .foregroundStyle(accentColor)
             .monospacedDigit()
             // Digits roll upward on refresh: the number is ticking up, not being replaced.
             .contentTransition(.numericText())
