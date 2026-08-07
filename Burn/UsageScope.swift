@@ -28,6 +28,25 @@ enum UsageScope: Hashable, Identifiable {
     }
 }
 
+/// A calendar month at the grain `UsageData` gives a rolling week — the Month nav scope's own shape.
+struct MonthUsage {
+    let label: String
+    /// The month's own date, distinct from `label` — a detail subtitle needs to format it its own way.
+    let date: Date
+    let total: Double
+    let tokenTotal: Int
+    let days: [DailyUsage]
+    let isCurrent: Bool
+    let canGoBack: Bool
+    /// 1.0 for a closed month; the fraction of days elapsed so far for the current one.
+    let elapsedFraction: Double
+
+    static let empty = MonthUsage(
+        label: "", date: .distantPast, total: 0, tokenTotal: 0, days: [],
+        isCurrent: true, canGoBack: false, elapsedFraction: 0
+    )
+}
+
 /// Feeds the Usage tab one `UsageData` whatever the scope, so the dashboard never learns about
 /// providers: Codex days are converted into the same shape Claude days already arrive in.
 @MainActor
@@ -76,6 +95,34 @@ struct ProviderUsage {
         return total
     }
 
+    func typicalWeekCost(_ scope: UsageScope) -> Double {
+        var total: Double = 0
+        if scope.includes(.claude) { total += claude.typicalWeekCost }
+        if scope.includes(.codex) { total += codex.typicalWeekCost }
+        return total
+    }
+
+    func typicalWeekTokens(_ scope: UsageScope) -> Int {
+        var total = 0
+        if scope.includes(.claude) { total += claude.typicalWeekTokens }
+        if scope.includes(.codex) { total += codex.typicalWeekTokens }
+        return total
+    }
+
+    func typicalMonthCost(_ scope: UsageScope) -> Double {
+        var total: Double = 0
+        if scope.includes(.claude) { total += claude.typicalMonthCost }
+        if scope.includes(.codex) { total += codex.typicalMonthCost }
+        return total
+    }
+
+    func typicalMonthTokens(_ scope: UsageScope) -> Int {
+        var total = 0
+        if scope.includes(.claude) { total += claude.typicalMonthTokens }
+        if scope.includes(.codex) { total += codex.typicalMonthTokens }
+        return total
+    }
+
     /// Per-provider totals for one day, used by the by-provider rows in "All providers".
     func breakdown(on date: String) -> [(provider: Provider, cost: Double, tokens: Int)] {
         availableProviders.compactMap { provider in
@@ -105,6 +152,48 @@ struct ProviderUsage {
             candidates += codex.response.daily.filter { $0.estimatedCost > 0 }.map(Self.asDailyUsage)
         }
         return candidates.filter { $0.date < date }.max { $0.date < $1.date }
+    }
+
+    /// A calendar month, offset from the current one, shaped like `UsageData` but at month grain —
+    /// the Month nav scope reshapes the card around this instead of a rolling 7-day window.
+    func monthUsage(scope: UsageScope, monthOffset: Int) -> MonthUsage {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let target = calendar.date(byAdding: .month, value: monthOffset, to: now) else {
+            return .empty
+        }
+        let prefix = String(UsageData.dateString(from: target).prefix(7))
+
+        var days: [DailyUsage] = []
+        if scope.includes(.claude) {
+            days = (claude.lastResponse?.daily ?? []).filter { $0.date.hasPrefix(prefix) }
+        }
+        if scope.includes(.codex) {
+            let codexDays = codex.response.daily.filter { $0.date.hasPrefix(prefix) }.map(Self.asDailyUsage)
+            days = Self.merge(days, codexDays)
+            let claudeDates = Set(days.map(\.date))
+            days += codexDays.filter { !claudeDates.contains($0.date) }
+        }
+
+        let isCurrent = monthOffset == 0
+        var elapsedFraction = 1.0
+        if isCurrent, let range = calendar.range(of: .day, in: .month, for: now) {
+            elapsedFraction = Double(calendar.component(.day, from: now)) / Double(range.count)
+        }
+        let earliest = [claude.lastResponse?.daily.map(\.date).min(), scope.includes(.codex) ? codex.response.daily.map(\.date).min() : nil]
+            .compactMap { $0 }
+            .min()
+
+        return MonthUsage(
+            label: Formatters.monthLabel(target),
+            date: target,
+            total: days.reduce(0) { $0 + $1.totalCost },
+            tokenTotal: days.reduce(0) { $0 + $1.inputTokens + $1.outputTokens },
+            days: days,
+            isCurrent: isCurrent,
+            canGoBack: earliest.map { $0 < prefix } ?? false,
+            elapsedFraction: elapsedFraction
+        )
     }
 
     func usageData(scope: UsageScope, weekOffset: Int = 0) -> UsageData {
@@ -153,6 +242,22 @@ struct ProviderUsage {
                 )
             }
         )
+    }
+
+    /// Sums same-named models across many days, so Week/Month can rank "by model" the way a
+    /// single day already does, instead of only ever seeing one day's models.
+    static func mergedModelBreakdowns(_ days: [DailyUsage]) -> [ModelBreakdown] {
+        let grouped = Dictionary(grouping: days.flatMap(\.modelBreakdowns), by: \.modelName)
+        return grouped.map { name, rows in
+            ModelBreakdown(
+                modelName: name,
+                inputTokens: rows.reduce(0) { $0 + $1.inputTokens },
+                outputTokens: rows.reduce(0) { $0 + $1.outputTokens },
+                cacheCreationTokens: rows.reduce(0) { $0 + $1.cacheCreationTokens },
+                cacheReadTokens: rows.reduce(0) { $0 + $1.cacheReadTokens },
+                cost: rows.reduce(0) { $0 + $1.cost }
+            )
+        }
     }
 
     static func window(_ days: [DailyUsage], like data: UsageData) -> [DailyUsage] {

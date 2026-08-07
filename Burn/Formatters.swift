@@ -51,12 +51,12 @@ enum Formatters {
     }
 
     /// "18% under typical" / "42% over typical", nil when there's no baseline.
-    static func comparison(value: Double, baseline: Double) -> String? {
+    static func comparison(value: Double, baseline: Double, noun: String = "a typical day") -> String? {
         guard baseline > 0, value > 0 else { return nil }
         let delta = (value - baseline) / baseline
         let percent = Int((abs(delta) * 100).rounded())
-        if percent < 3 { return "right on a typical day" }
-        return "\(percent)% \(delta > 0 ? "over" : "under") a typical day"
+        if percent < 3 { return "right on \(noun)" }
+        return "\(percent)% \(delta > 0 ? "over" : "under") \(noun)"
     }
 
     static func tokensCompact(_ total: Int) -> String {
@@ -126,6 +126,17 @@ enum Formatters {
         return dateString
     }
 
+    /// "August 6, 2026" — a detail subtitle needs a date more specific than the title above it.
+    static func dayFullLabel(_ dateString: String) -> String {
+        guard let parsed = dayParser.date(from: dateString) else { return dateString }
+        return fullDay.string(from: parsed)
+    }
+
+    /// "August 2026" — the month detail's subtitle, next to a title that only names the month.
+    static func monthYearLabel(_ date: Date) -> String {
+        monthYearFormatter.string(from: date)
+    }
+
     static func relativeTime(_ date: Date) -> String {
         guard date != .distantPast else { return "Never refreshed" }
         let f = DateFormatter()
@@ -175,6 +186,18 @@ enum Formatters {
     private static let longDay: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "EEE, MMM d"
+        return f
+    }()
+
+    private static let fullDay: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMMM d, yyyy"
+        return f
+    }()
+
+    private static let monthYearFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMMM yyyy"
         return f
     }()
 }

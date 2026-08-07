@@ -4,8 +4,8 @@ import ClaudeUsageKit
 
 enum DetailScope: Equatable {
     case day(String)
-    case week
-    case month
+    case week(Int)
+    case month(Int)
 }
 
 struct UsageDashboardView: View {
@@ -15,42 +15,19 @@ struct UsageDashboardView: View {
 
     @Environment(\.openBurnSettings) private var openSettings
 
-    @State private var weekOffset = 0
-    @State private var selectedDayId: String? = UsageDashboardView.initialSelectedDay()
     @State private var openScope: DetailScope? = UsageDashboardView.initialOpenScope()
-
-    /// Screenshots need a way to land on a closed day; the UI gets there by clicking a bar.
-    private static func initialSelectedDay() -> String? {
-        guard let raw = ProcessInfo.processInfo.environment["BURN_DAY_OFFSET"],
-              let offset = Int(raw),
-              let date = Calendar.current.date(byAdding: .day, value: -abs(offset), to: Date())
-        else { return nil }
-        return UsageData.dateString(from: date)
-    }
 
     private static func initialOpenScope() -> DetailScope? {
         switch ProcessInfo.processInfo.environment["BURN_DETAIL"] {
         case "day":   return .day("")
-        case "week":  return .week
-        case "month": return .month
+        case "week":  return .week(0)
+        case "month": return .month(0)
         default:      return nil
         }
     }
 
-    private var displayData: UsageData {
-        ext.providerUsage.usageData(scope: ext.scope, weekOffset: weekOffset)
-    }
-
     private var tokens: TokenAggregates {
-        TokenAggregates.compute(response: service.lastResponse, weekEnd: displayData.weekEnd)
-    }
-
-    var selectedDay: DailyUsage? {
-        let days = displayData.last7Days
-        if let id = selectedDayId, let day = days.first(where: { $0.id == id }) {
-            return day
-        }
-        return days.last
+        TokenAggregates.compute(response: service.lastResponse, weekEnd: ext.displayData.weekEnd)
     }
 
     var body: some View {
@@ -101,61 +78,108 @@ struct UsageDashboardView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// One row above the hero: scope on the left, day paging on the right once a closed day is open.
-    @ViewBuilder
+    // MARK: - Nav
+
+    /// One merged row: chip when multi-provider, then chevrons + label, then the period picker.
     private var topBar: some View {
-        let showsChip = ext.providerUsage.availableScopes.count > 1
-        let showsNav = selectedDay != nil && !isViewingToday
-        if showsChip || showsNav {
-            HStack(spacing: 8) {
-                if showsChip { providerChip }
-                Spacer(minLength: 0)
-                if showsNav { dayNav }
+        VStack(alignment: .leading, spacing: 8) {
+            if showsChip {
+                HStack { providerChip; Spacer(minLength: 0) }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
+            HStack(spacing: 8) {
+                EmberPeriodNav(
+                    label: navLabel,
+                    canGoBack: navCanGoBack,
+                    canGoForward: navCanGoForward,
+                    onBack: { shiftPeriod(-1) },
+                    onForward: { shiftPeriod(1) }
+                )
+                Spacer(minLength: 8)
+                EmberSegmented(
+                    options: UsagePeriod.allCases.map { (label: $0.label, value: $0) },
+                    selection: periodBinding
+                )
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .background(alignment: .topLeading) { periodShortcuts }
+    }
+
+    private var showsChip: Bool { ext.providerUsage.availableScopes.count > 1 }
+
+    private var periodBinding: Binding<UsagePeriod> {
+        Binding(get: { ext.period }, set: { ext.period = $0 })
+    }
+
+    private var navLabel: String {
+        switch ext.period {
+        case .day:   return ext.selectedDay.map { Formatters.dayLabel($0.date) } ?? "Today"
+        case .week:  return ext.displayData.isCurrentWeek ? "Last 7 days" : Formatters.weekRange(ext.displayData)
+        case .month: return ext.monthData.label
         }
     }
 
-    private var isViewingToday: Bool {
-        selectedDay?.date == UsageData.dateString(from: Date())
+    private var navCanGoBack: Bool {
+        switch ext.period {
+        case .day:   return canShiftDay(-1)
+        case .week:  return ext.displayData.canGoBack
+        case .month: return ext.monthData.canGoBack
+        }
+    }
+
+    private var navCanGoForward: Bool {
+        switch ext.period {
+        case .day:   return canShiftDay(1)
+        case .week:  return ext.weekOffset < 0
+        case .month: return ext.monthOffset < 0
+        }
+    }
+
+    private var currentDetailScope: DetailScope {
+        switch ext.period {
+        case .day:   return .day(ext.selectedDay?.id ?? "")
+        case .week:  return .week(ext.weekOffset)
+        case .month: return .month(ext.monthOffset)
+        }
     }
 
     // MARK: - Hero
 
     @ViewBuilder
     private var hero: some View {
-        let day = selectedDay
-        let cost = day?.totalCost ?? 0
-        let totalIO = (day?.inputTokens ?? 0) + (day?.outputTokens ?? 0)
-
+        let totals = periodTotals
         Group {
-            if cost <= 0 {
-                EmberEmptyHero(
-                    title: isViewingToday || day == nil ? "Nothing burned yet" : "Nothing burned that day",
-                    footnote: lastKnownLine
-                )
+            if totals.cost <= 0 {
+                EmberEmptyHero(title: emptyHeroTitle, footnote: lastKnownLine)
             } else {
                 Group {
                     if settings.displayMode == .tokens {
-                        EmberHero(primary: Formatters.tokensCompact(totalIO)) { heroCaption }
+                        EmberHero(primary: Formatters.tokensCompact(totals.tokens)) { heroCaption }
                     } else {
-                        EmberHero(cost: cost) { heroCaption }
+                        EmberHero(cost: totals.cost) { heroCaption }
                     }
                 }
-                .onTapGesture { if let day { toggleDetail(.day(day.id)) } }
+                .onTapGesture { toggleDetail(currentDetailScope) }
                 .pointingHandCursor()
                 // The day's first session landing is the one moment worth a beat.
                 .transition(.emberRise)
             }
         }
-        .animation(.easeOut(duration: 0.25), value: cost <= 0)
+        .animation(.easeOut(duration: 0.25), value: totals.cost <= 0)
+    }
+
+    private var emptyHeroTitle: String {
+        switch ext.period {
+        case .day:   return ext.isViewingToday || ext.selectedDay == nil ? "Nothing burned yet" : "Nothing burned that day"
+        case .week:  return "Nothing burned this week"
+        case .month: return "Nothing burned this month"
+        }
     }
 
     /// The empty hero still carries a real number, just an older one — never a bare zero.
     private var lastKnownLine: String? {
-        let onScreen = selectedDay?.date ?? UsageData.dateString(from: Date())
-        guard let day = ext.providerUsage.lastActiveDay(scope: ext.scope, before: onScreen) else {
+        guard let day = ext.providerUsage.lastActiveDay(scope: ext.scope, before: periodAnchorDate) else {
             return nil
         }
         let value = Formatters.formatPrimary(
@@ -166,18 +190,35 @@ struct UsageDashboardView: View {
         return "Last burn \(value) on \(Formatters.dayLabel(day.date))"
     }
 
+    private var periodAnchorDate: String {
+        switch ext.period {
+        case .day:   return ext.selectedDay?.date ?? UsageData.dateString(from: Date())
+        case .week:  return ext.displayData.last7Days.last?.date ?? UsageData.dateString(from: Date())
+        case .month: return ext.monthData.days.last?.date ?? UsageData.dateString(from: Date())
+        }
+    }
+
     @ViewBuilder
     private var heroCaption: some View {
-        let label = selectedDay.map { Formatters.dayLabel($0.date).lowercased() } ?? "today"
+        switch ext.period {
+        case .day:   dayCaption
+        case .week:  weekCaption
+        case .month: monthCaption
+        }
+    }
+
+    @ViewBuilder
+    private var dayCaption: some View {
+        let label = ext.selectedDay.map { Formatters.dayLabel($0.date).lowercased() } ?? "today"
         if let comparison = closedDayComparison {
             Text(comparison)
-        } else if settings.displayMode != .cost, let day = selectedDay {
+        } else if settings.displayMode != .cost, let day = ext.selectedDay {
             Text(Formatters.tokenLine(
                 input: day.inputTokens,
                 output: day.outputTokens,
                 cache: day.cacheCreationTokens + day.cacheReadTokens
             ))
-        } else if isViewingToday, let pace = monthPace {
+        } else if ext.isViewingToday, let pace = monthPace {
             Text("\(label) · month on pace for ")
                 + Text(Formatters.costRounded(pace)).bold().foregroundColor(Ember.text(0.9))
         } else {
@@ -187,19 +228,45 @@ struct UsageDashboardView: View {
 
     /// A closed day has nothing left to project, so it reads against the baseline instead.
     private var closedDayComparison: String? {
-        guard !isViewingToday, selectedDay != nil else { return nil }
-        return Formatters.comparison(value: dayMetric(selectedDay), baseline: typicalMetric)
+        guard !ext.isViewingToday, ext.selectedDay != nil else { return nil }
+        return Formatters.comparison(value: periodMetricValue, baseline: periodTypicalValue)
     }
 
-    /// Month-to-date spend extrapolated across the whole month.
+    /// Month-to-date spend extrapolated across the whole month, for the day view's own footnote.
     private var monthPace: Double? {
         let calendar = Calendar.current
         let now = Date()
-        guard displayData.monthTotal > 0,
+        guard ext.displayData.monthTotal > 0,
               let range = calendar.range(of: .day, in: .month, for: now) else { return nil }
         let elapsed = calendar.component(.day, from: now)
         guard elapsed > 0 else { return nil }
-        return displayData.monthTotal / Double(elapsed) * Double(range.count)
+        return ext.displayData.monthTotal / Double(elapsed) * Double(range.count)
+    }
+
+    @ViewBuilder
+    private var weekCaption: some View {
+        if let comparison = Formatters.comparison(value: periodMetricValue, baseline: periodTypicalValue, noun: "a typical week") {
+            Text(comparison)
+        } else {
+            Text("\(periodValueLabel(periodMetricValue)) this week")
+        }
+    }
+
+    @ViewBuilder
+    private var monthCaption: some View {
+        if ext.monthData.isCurrent, let pace = monthPeriodPace {
+            Text("on pace for ") + Text(periodValueLabel(pace)).bold().foregroundColor(Ember.text(0.9))
+        } else if let comparison = Formatters.comparison(value: periodMetricValue, baseline: periodTypicalValue, noun: "a typical month") {
+            Text(comparison)
+        } else {
+            Text("\(periodValueLabel(periodMetricValue)) this month")
+        }
+    }
+
+    /// A rolling week always ends today; only the calendar month still has days ahead to project.
+    private var monthPeriodPace: Double? {
+        guard ext.monthData.elapsedFraction > 0, periodMetricValue > 0 else { return nil }
+        return periodMetricValue / ext.monthData.elapsedFraction
     }
 
     // MARK: - Pace
@@ -207,54 +274,98 @@ struct UsageDashboardView: View {
     /// A typical day always sits at `typicalMark`, so the fill means the same thing every day.
     private static let typicalMark = 0.72
 
-    @ViewBuilder
     private var paceTrack: some View {
-        let value = dayMetric(selectedDay)
-        let typical = typicalMetric
-        let leading = displayData.isCurrentWeek && selectedDayId == nil
-            ? "now \(Formatters.clockTime(Date()))"
-            : Formatters.dayLabel(selectedDay?.date ?? "")
+        let value = periodMetricValue
+        let typical = periodTypicalValue
 
-        EmberTrack(
+        return EmberTrack(
             fill: typical > 0 ? value / typical * Self.typicalMark : (value > 0 ? Self.typicalMark : 0),
             tick: typical > 0 ? Self.typicalMark : nil,
-            leading: leading,
-            trailing: typical > 0 ? "typical day \(typicalLabel)" : ""
+            leading: paceLeading,
+            trailing: typical > 0 ? "typical \(typicalNoun) \(periodValueLabel(typical))" : ""
         )
         .padding(.top, 12)
         .padding(.bottom, 14)
     }
 
-    private var typicalDay: Double { ext.providerUsage.typicalDayCost(ext.scope) }
-
-    /// Everything on this row measures whatever the hero measures: dollars pace dollars, tokens pace tokens.
-    private var typicalMetric: Double {
-        settings.displayMode == .tokens
-            ? Double(ext.providerUsage.typicalDayTokens(ext.scope))
-            : typicalDay
+    private var paceLeading: String {
+        switch ext.period {
+        case .day:
+            return ext.displayData.isCurrentWeek && ext.selectedDayId == nil
+                ? "now \(Formatters.clockTime(Date()))"
+                : Formatters.dayLabel(ext.selectedDay?.date ?? "")
+        case .week:
+            return ext.displayData.isCurrentWeek ? "Last 7 days" : Formatters.weekRange(ext.displayData)
+        case .month:
+            return ext.monthData.label
+        }
     }
 
-    private var typicalLabel: String {
-        settings.displayMode == .tokens
-            ? Formatters.tokensCompact(ext.providerUsage.typicalDayTokens(ext.scope))
-            : Formatters.costRounded(typicalDay)
+    private var typicalNoun: String {
+        switch ext.period {
+        case .day:   return "day"
+        case .week:  return "week"
+        case .month: return "month"
+        }
     }
 
-    private func dayMetric(_ day: DailyUsage?) -> Double {
-        guard let day else { return 0 }
-        return settings.displayMode == .tokens
-            ? Double(day.inputTokens + day.outputTokens)
-            : day.totalCost
+    /// What the hero and pace track both measure — dollars pace dollars, tokens pace tokens.
+    private var periodMetricValue: Double {
+        settings.displayMode == .tokens ? Double(periodTotals.tokens) : periodTotals.cost
+    }
+
+    private var periodTypicalValue: Double {
+        switch ext.period {
+        case .day:
+            return settings.displayMode == .tokens
+                ? Double(ext.providerUsage.typicalDayTokens(ext.scope))
+                : ext.providerUsage.typicalDayCost(ext.scope)
+        case .week:
+            return settings.displayMode == .tokens
+                ? Double(ext.providerUsage.typicalWeekTokens(ext.scope))
+                : ext.providerUsage.typicalWeekCost(ext.scope)
+        case .month:
+            return settings.displayMode == .tokens
+                ? Double(ext.providerUsage.typicalMonthTokens(ext.scope))
+                : ext.providerUsage.typicalMonthCost(ext.scope)
+        }
+    }
+
+    private func periodValueLabel(_ value: Double) -> String {
+        settings.displayMode == .tokens ? Formatters.tokensCompact(Int(value)) : Formatters.costRounded(value)
+    }
+
+    /// Cost and tokens for whatever grain is selected: day, rolling week, or calendar month.
+    private var periodTotals: (cost: Double, tokens: Int) {
+        switch ext.period {
+        case .day:
+            guard let day = ext.selectedDay else { return (0, 0) }
+            return (day.totalCost, day.inputTokens + day.outputTokens)
+        case .week:
+            return (ext.displayData.weekTotal, tokens.weekInput + tokens.weekOutput)
+        case .month:
+            return (ext.monthData.total, ext.monthData.tokenTotal)
+        }
+    }
+
+    /// The days behind whatever's on screen, for ranking models or providers across it.
+    private var periodDays: [DailyUsage] {
+        switch ext.period {
+        case .day:   return ext.selectedDay.map { [$0] } ?? []
+        case .week:  return ext.displayData.last7Days
+        case .month: return ext.monthData.days
+        }
     }
 
     // MARK: - Models
 
     @ViewBuilder
     private var modelSection: some View {
-        if let day = selectedDay, !day.modelBreakdowns.isEmpty {
-            let ranked = day.modelBreakdowns.sorted { metric($0) > metric($1) }
+        let days = periodDays
+        let ranked = ProviderUsage.mergedModelBreakdowns(days).sorted { metric($0) > metric($1) }
+        if !ranked.isEmpty {
             let leader = ranked.first.map(metric) ?? 0
-            EmberSection(title: "By model", trailing: cacheNote(for: day)) {
+            EmberSection(title: "By model", trailing: cacheNote(for: days)) {
                 VStack(spacing: 10) {
                     ForEach(Array(ranked.prefix(4).enumerated()), id: \.element.modelName) { index, model in
                         EmberBarRow(
@@ -282,21 +393,23 @@ struct UsageDashboardView: View {
     }
 
     /// Share of the priced components, not of totalCost, so the two always agree.
-    private func cacheNote(for day: DailyUsage) -> String? {
-        let breakdown = BreakdownData.compute(title: "", subtitle: "", days: [day])
+    private func cacheNote(for days: [DailyUsage]) -> String? {
+        let breakdown = BreakdownData.compute(title: "", subtitle: "", days: days)
         let cacheCost = breakdown.cacheReadCost + breakdown.cacheWriteCost
         let priced = breakdown.inputCost + breakdown.outputCost + cacheCost
         guard priced > 0, cacheCost > 0 else { return nil }
+        let cacheTokens = days.reduce(0) { $0 + $1.cacheCreationTokens + $1.cacheReadTokens }
         let amount = settings.displayMode == .tokens
-            ? Formatters.tokensCompact(day.cacheCreationTokens + day.cacheReadTokens)
+            ? Formatters.tokensCompact(cacheTokens)
             : Formatters.cost(cacheCost)
         return "\(Int((cacheCost / priced * 100).rounded()))% cache · \(amount)"
     }
 
     // MARK: - Context strip
 
+    /// Read-only now that paging lives in the nav row above; still tappable to open the detail.
     private var contextStrip: some View {
-        let data = displayData
+        let data = ext.displayData
         let maxCost = data.last7Days.map(\.totalCost).max() ?? 0
         let weekValue = settings.displayMode == .tokens
             ? Formatters.tokensCompact(tokens.weekInput + tokens.weekOutput)
@@ -309,30 +422,26 @@ struct UsageDashboardView: View {
             bars: data.last7Days.map {
                 .init(id: $0.id, fraction: maxCost > 0 ? $0.totalCost / maxCost : 0)
             },
-            selectedId: selectedDay?.id,
+            selectedId: ext.period == .day ? ext.selectedDay?.id : nil,
             leading: .init(
                 label: data.isCurrentWeek ? "Last 7 days" : Formatters.weekRange(data),
                 value: weekValue
             ),
             trailing: .init(label: Formatters.monthName(data), value: monthValue),
-            onSelect: { selectedDayId = $0 },
-            onOpen: { toggleDetail($0 == .week ? .week : .month) },
-            nav: .init(
-                canGoBack: data.canGoBack,
-                canGoForward: weekOffset < 0,
-                onBack: { shiftWeek(-1) },
-                onForward: { shiftWeek(1) }
-            )
+            onSelect: { id in
+                ext.selectedDayId = id
+                ext.period = .day
+            },
+            onOpen: { toggleDetail($0 == .week ? .week(0) : .month(0)) }
         )
-        .background(alignment: .topLeading) { weekShortcuts }
     }
 
-    /// Keyboard paging kept alive now that the visible nav is two inline chevrons.
-    private var weekShortcuts: some View {
+    /// Invisible buttons keep the shortcuts alive now that the visible nav is two inline chevrons.
+    private var periodShortcuts: some View {
         ZStack {
-            Button("") { shiftWeek(-1) }.keyboardShortcut(.leftArrow, modifiers: .command)
-            Button("") { shiftWeek(1) }.keyboardShortcut(.rightArrow, modifiers: .command)
-            Button("") { shiftWeek(nil) }.keyboardShortcut("0", modifiers: .command)
+            Button("") { shiftPeriod(-1) }.keyboardShortcut(.leftArrow, modifiers: .command)
+            Button("") { shiftPeriod(1) }.keyboardShortcut(.rightArrow, modifiers: .command)
+            Button("") { resetPeriod() }.keyboardShortcut("0", modifiers: .command)
             Button("") { shiftDay(-1) }.keyboardShortcut(.leftArrow, modifiers: .option)
             Button("") { shiftDay(1) }.keyboardShortcut(.rightArrow, modifiers: .option)
         }
@@ -341,55 +450,67 @@ struct UsageDashboardView: View {
         .allowsHitTesting(false)
     }
 
+    private func shiftPeriod(_ delta: Int) {
+        switch ext.period {
+        case .day:   shiftDay(delta)
+        case .week:  shiftWeek(delta)
+        case .month: shiftMonth(delta)
+        }
+    }
+
+    /// ⌘0 for whichever period is selected: today, this rolling week, or this calendar month.
+    private func resetPeriod() {
+        switch ext.period {
+        case .day, .week:
+            shiftWeek(nil)
+        case .month:
+            ext.monthOffset = 0
+            withAnimation(.easeInOut(duration: 0.15)) { openScope = nil }
+        }
+    }
+
     private func shiftWeek(_ delta: Int?) {
         if let delta {
-            let next = weekOffset + delta
-            guard next <= 0, delta < 0 ? displayData.canGoBack : true else { return }
-            weekOffset = next
+            let next = ext.weekOffset + delta
+            guard next <= 0, delta < 0 ? ext.displayData.canGoBack : true else { return }
+            ext.weekOffset = next
         } else {
-            weekOffset = 0
+            ext.weekOffset = 0
         }
-        selectedDayId = nil
+        ext.selectedDayId = nil
         withAnimation(.easeInOut(duration: 0.15)) { openScope = nil }
     }
 
-    @ViewBuilder
-    private var dayNav: some View {
-        if let day = selectedDay {
-            EmberDayNav(
-                label: Formatters.dayLabel(day.date),
-                canGoBack: canShiftDay(-1),
-                canGoForward: canShiftDay(1),
-                onBack: { shiftDay(-1) },
-                onForward: { shiftDay(1) },
-                onToday: { shiftWeek(nil) }
-            )
-        }
+    private func shiftMonth(_ delta: Int) {
+        let next = ext.monthOffset + delta
+        guard next <= 0, delta >= 0 || ext.monthData.canGoBack else { return }
+        ext.monthOffset = next
+        withAnimation(.easeInOut(duration: 0.15)) { openScope = nil }
     }
 
     private func canShiftDay(_ delta: Int) -> Bool {
-        let days = displayData.last7Days
-        guard let current = selectedDay,
+        let days = ext.displayData.last7Days
+        guard let current = ext.selectedDay,
               let index = days.firstIndex(where: { $0.id == current.id }) else { return false }
         let next = index + delta
         if next >= 0, next < days.count { return true }
-        return next < 0 ? displayData.canGoBack : weekOffset < 0
+        return next < 0 ? ext.displayData.canGoBack : ext.weekOffset < 0
     }
 
     /// Stepping off either end of the visible week pages it and lands on the adjacent day.
     private func shiftDay(_ delta: Int) {
-        let days = displayData.last7Days
-        guard let current = selectedDay,
+        let days = ext.displayData.last7Days
+        guard let current = ext.selectedDay,
               let index = days.firstIndex(where: { $0.id == current.id }) else { return }
         let next = index + delta
         if next >= 0, next < days.count {
-            selectedDayId = days[next].id
-        } else if next < 0, displayData.canGoBack {
-            weekOffset -= 1
-            selectedDayId = displayData.last7Days.last?.id
-        } else if next >= days.count, weekOffset < 0 {
-            weekOffset += 1
-            selectedDayId = displayData.last7Days.first?.id
+            ext.selectedDayId = days[next].id
+        } else if next < 0, ext.displayData.canGoBack {
+            ext.weekOffset -= 1
+            ext.selectedDayId = ext.displayData.last7Days.last?.id
+        } else if next >= days.count, ext.weekOffset < 0 {
+            ext.weekOffset += 1
+            ext.selectedDayId = ext.displayData.last7Days.first?.id
         } else {
             return
         }
@@ -422,29 +543,29 @@ struct UsageDashboardView: View {
     private func breakdownData(for scope: DetailScope) -> BreakdownData {
         switch scope {
         case .day(let id):
-            let day = displayData.last7Days.first(where: { $0.id == id })
-                ?? selectedDay
-                ?? displayData.last7Days.last
+            let day = ext.displayData.last7Days.first(where: { $0.id == id })
+                ?? ext.selectedDay
+                ?? ext.displayData.last7Days.last
             guard let day else { return BreakdownData.empty(title: "Day", subtitle: "No data") }
             return BreakdownData.compute(
                 title: Formatters.dayLabel(day.date),
-                subtitle: Formatters.dayLabel(day.date),
+                subtitle: Formatters.dayFullLabel(day.date),
                 days: [day]
             )
-        case .week:
-            let title = displayData.isCurrentWeek ? "Last 7 days" : "Week"
+        case .week(let offset):
+            let data = ext.providerUsage.usageData(scope: ext.scope, weekOffset: offset)
+            let title = data.isCurrentWeek ? "Last 7 days" : "Week"
             return BreakdownData.compute(
                 title: title,
-                subtitle: Formatters.weekRange(displayData),
-                days: displayData.last7Days
+                subtitle: Formatters.weekRange(data),
+                days: data.last7Days
             )
-        case .month:
-            let monthPrefix = String(UsageData.dateString(from: displayData.weekEnd).prefix(7))
-            let days = (service.lastResponse?.daily ?? []).filter { $0.date.hasPrefix(monthPrefix) }
+        case .month(let offset):
+            let month = ext.providerUsage.monthUsage(scope: ext.scope, monthOffset: offset)
             return BreakdownData.compute(
-                title: Formatters.monthName(displayData),
-                subtitle: Formatters.monthName(displayData),
-                days: days
+                title: Formatters.monthLabel(month.date),
+                subtitle: Formatters.monthYearLabel(month.date),
+                days: month.days
             )
         }
     }
@@ -520,34 +641,41 @@ extension UsageDashboardView {
 
     @ViewBuilder
     var providerSection: some View {
-        if let day = selectedDay {
-            let rows = ext.providerUsage.breakdown(on: day.date)
-            let leader = rows.map(providerMetric).max() ?? 0
-            if !rows.isEmpty {
-                EmberSection(
-                    title: "By provider",
-                    trailing: Formatters.formatPrimary(
-                        cost: day.totalCost,
-                        tokens: day.inputTokens + day.outputTokens,
-                        mode: settings.displayMode
-                    )
-                ) {
-                    VStack(spacing: 10) {
-                        ForEach(Array(rows.enumerated()), id: \.element.provider) { index, row in
-                            EmberBarRow(
-                                label: row.provider.displayName,
-                                fraction: leader > 0 ? providerMetric(row) / leader : 0,
-                                value: Formatters.formatPrimary(
-                                    cost: row.cost, tokens: row.tokens, mode: settings.displayMode
-                                ),
-                                emphasis: providerMetric(row) == leader ? 1.0 : 0.55,
-                                color: row.provider.accent,
-                                row: index
-                            )
-                        }
+        let rows = periodProviderBreakdown
+        let leader = rows.map(providerMetric).max() ?? 0
+        if !rows.isEmpty {
+            let totals = periodTotals
+            EmberSection(
+                title: "By provider",
+                trailing: Formatters.formatPrimary(cost: totals.cost, tokens: totals.tokens, mode: settings.displayMode)
+            ) {
+                VStack(spacing: 10) {
+                    ForEach(Array(rows.enumerated()), id: \.element.provider) { index, row in
+                        EmberBarRow(
+                            label: row.provider.displayName,
+                            fraction: leader > 0 ? providerMetric(row) / leader : 0,
+                            value: Formatters.formatPrimary(
+                                cost: row.cost, tokens: row.tokens, mode: settings.displayMode
+                            ),
+                            emphasis: providerMetric(row) == leader ? 1.0 : 0.55,
+                            color: row.provider.accent,
+                            row: index
+                        )
                     }
                 }
             }
+        }
+    }
+
+    /// Per-provider totals across whatever grain is on screen, summed one date at a time.
+    private var periodProviderBreakdown: [(provider: Provider, cost: Double, tokens: Int)] {
+        let rows = periodDays.flatMap { ext.providerUsage.breakdown(on: $0.date) }
+        let grouped = Dictionary(grouping: rows, by: \.provider)
+        return ext.providerUsage.availableProviders.compactMap { provider in
+            guard let matches = grouped[provider] else { return nil }
+            let cost = matches.reduce(0) { $0 + $1.cost }
+            let tokens = matches.reduce(0) { $0 + $1.tokens }
+            return cost > 0 ? (provider, cost, tokens) : nil
         }
     }
 }
