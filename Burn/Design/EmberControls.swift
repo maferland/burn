@@ -38,15 +38,18 @@ struct EmberSegmented<Value: Hashable>: View {
 struct EmberToggle: View {
     @Binding var isOn: Bool
 
+    /// The knob slides on an offset. Swapping the stack's alignment made it teleport instead.
+    private var knobOffset: CGFloat { isOn ? 15 : 2 }
+
     var body: some View {
-        Button { isOn.toggle() } label: {
-            ZStack(alignment: isOn ? .trailing : .leading) {
+        Button { withAnimation(EmberMotion.pill) { isOn.toggle() } } label: {
+            ZStack(alignment: .leading) {
                 Capsule()
                     .fill(isOn ? Ember.accent : Ember.fill(0.16))
                 Circle()
                     .fill(isOn ? Ember.surface : Ember.fill(0.78))
                     .frame(width: 15, height: 15)
-                    .padding(2)
+                    .offset(x: knobOffset)
             }
             .frame(width: 32, height: 19)
             .contentShape(Rectangle())
