@@ -1,5 +1,6 @@
 import SwiftUI
 
+@Observable
 @MainActor
 final class LimitsExtension: BurnExtension {
     static let menuBarKey = "limits.showsInMenuBar"
@@ -40,9 +41,17 @@ final class LimitsExtension: BurnExtension {
         return Formatters.spendLine(spend)
     }
 
+    /// Same fallback the status line already has: a usage-based seat reports no windows, only spend.
     func menuBarSegment() -> Text? {
-        guard showsInMenuBar, let (_, window) = service.response.tightest else { return nil }
-        return Text("◔ \(Formatters.percent(window.remainingPercent))")
+        guard showsInMenuBar else { return nil }
+        if let (_, window) = service.response.tightest {
+            return Text("◔ \(Formatters.percent(window.remainingPercent))")
+        }
+        guard let spend = service.response.accounts.compactMap(\.spend).first else { return nil }
+        guard let fraction = spend.fraction else {
+            return Text("◔ \(Formatters.costRounded(spend.usedDollars))")
+        }
+        return Text("◔ \(Formatters.percent((1 - fraction) * 100))")
     }
 
     func popoverTab() -> AnyView {
