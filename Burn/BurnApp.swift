@@ -37,14 +37,7 @@ struct MenuBarLabel: View {
     }
 
     static func loadMenuBarIcon() -> NSImage {
-        guard let url = BurnResources.bundle.url(forResource: "MenuBarIcon@2x", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else {
-            return NSImage(systemSymbolName: "dollarsign.circle", accessibilityDescription: "Burn")
-                ?? NSImage(size: NSSize(width: 18, height: 18))
-        }
-        image.size = NSSize(width: 18, height: 18)
-        image.isTemplate = true
-        return image
+        BurnResources.templateIcon(named: "MenuBarIcon", size: 18)
     }
 }
 

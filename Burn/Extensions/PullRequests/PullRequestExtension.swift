@@ -210,7 +210,7 @@ final class PullRequestExtension: BurnExtension {
         return rate * Double(daysInMonth)
     }
 
-    var tabGlyph: TabGlyph { .symbol("arrow.triangle.merge") }
+    var tabGlyph: TabGlyph { .asset("PRIcon") }
 
     var settingsSubtitle: String? {
         let count = hostStore.hosts.count

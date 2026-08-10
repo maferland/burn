@@ -98,7 +98,7 @@ final class UsageExtension: BurnExtension {
             ?? (stored == "all" ? .all : .provider(.claude))
     }
 
-    var tabGlyph: TabGlyph { .asset }
+    var tabGlyph: TabGlyph { .asset("MenuBarIcon") }
 
     func refresh() {
         service.refresh()

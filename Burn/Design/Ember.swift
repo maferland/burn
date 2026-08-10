@@ -97,7 +97,7 @@ extension NSColor {
 
 /// Tab glyphs come from a bundled asset, an SF Symbol, or fall back to the extension name.
 enum TabGlyph {
-    case asset
+    case asset(String)
     case symbol(String)
     case text(String)
 }
@@ -138,9 +138,9 @@ struct EmberTabStrip: View {
     @ViewBuilder
     private func glyph(_ glyph: TabGlyph, isActive: Bool) -> some View {
         switch glyph {
-        case .asset:
+        case .asset(let name):
             // The glyph is a template, so it has to be told to tint; left alone it draws flat black.
-            Image(nsImage: MenuBarLabel.loadMenuBarIcon())
+            Image(nsImage: BurnResources.templateIcon(named: name, size: 12))
                 .resizable()
                 .renderingMode(.template)
                 .frame(width: 12, height: 12)

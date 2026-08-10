@@ -25,4 +25,8 @@ render assets/burn-glyph.svg 18 Burn/Resources/MenuBarIcon@1x.png
 render assets/burn-glyph.svg 36 Burn/Resources/MenuBarIcon@2x.png
 render assets/burn-glyph.svg 500 Burn/Resources/MenuBarIcon.png
 
-echo "Rendered assets/icon.png, assets/exports/, and the menu bar glyph."
+# PR tab-strip glyph. Same template-image treatment as the menu bar glyph above.
+render assets/pr-icon.svg 18 Burn/Resources/PRIcon@1x.png
+render assets/pr-icon.svg 36 Burn/Resources/PRIcon@2x.png
+
+echo "Rendered assets/icon.png, assets/exports/, and the menu bar + PR tab glyphs."
