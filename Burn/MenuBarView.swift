@@ -69,7 +69,10 @@ struct MenuBarView: View {
         .environment(\.burnPopDetail, {
             withAnimation(.easeOut(duration: 0.2)) { detail = nil }
         })
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+        // Reset on close, not on open: resetting on didBecomeKey happened after the window was
+        // already visible, so the stale tab/day briefly showed before snapping back — a jump the
+        // user watched happen. Resetting as it closes means the next open already starts fresh.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
             guard let window = note.object as? NSWindow else { return }
             let className = String(describing: type(of: window))
             guard className.contains("MenuBarExtra") || className.contains("Popover") || className.contains("StatusBar") else { return }
