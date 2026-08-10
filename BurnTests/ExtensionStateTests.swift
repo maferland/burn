@@ -96,7 +96,7 @@ final class ExtensionStateTests: XCTestCase {
         ext.prs = [
             PullRequest(
                 url: "https://example.com/1", title: "Ship it", createdAt: Date(),
-                repository: .init(nameWithOwner: "carta/web"), state: "OPEN", closedAt: nil
+                repository: .init(nameWithOwner: "contoso/web"), state: "OPEN", closedAt: nil
             )
         ]
         ext.lastRefresh = Date()
