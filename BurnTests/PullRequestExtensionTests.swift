@@ -14,7 +14,7 @@ final class PullRequestExtensionTests: XCTestCase {
         let createdAt = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!
         return PullRequest(
             url: title, title: title, createdAt: createdAt,
-            repository: .init(nameWithOwner: "carta/web"),
+            repository: .init(nameWithOwner: "contoso/web"),
             state: merged ? "MERGED" : "OPEN",
             closedAt: merged ? createdAt : nil
         )

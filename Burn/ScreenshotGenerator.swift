@@ -224,8 +224,8 @@ enum ScreenshotGenerator {
         for host in store.hosts {
             store.remove(host.id)
         }
-        store.upsert(GitHostConfig(host: "github.com", org: "carta"))
-        store.upsert(GitHostConfig(host: "git.carta.rocks", org: "carta"))
+        store.upsert(GitHostConfig(host: "github.com", org: "contoso"))
+        store.upsert(GitHostConfig(host: "git.example.com", org: "contoso"))
         return store
     }
 

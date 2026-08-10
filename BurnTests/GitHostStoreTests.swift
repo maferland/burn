@@ -37,8 +37,8 @@ final class GitHostStoreTests: XCTestCase {
     // MARK: - Migration
 
     func testMigratesOwnersAndForgejoHostIntoOneRowEach() {
-        defaults.set(["carta"], forKey: PullRequestExtension.ownersKey)
-        defaults.set("git.carta.rocks", forKey: PullRequestExtension.forgejoHostKey)
+        defaults.set(["contoso"], forKey: PullRequestExtension.ownersKey)
+        defaults.set("git.example.com", forKey: PullRequestExtension.forgejoHostKey)
         KeychainStore.write("legacy-token", service: legacyService)
 
         let store = makeStore()
@@ -47,16 +47,16 @@ final class GitHostStoreTests: XCTestCase {
         XCTAssertEqual(hosts.count, 2)
         XCTAssertEqual(hosts[0].host, "github.com")
         XCTAssertEqual(hosts[0].kind, .github)
-        XCTAssertEqual(hosts[0].org, "carta")
-        XCTAssertEqual(hosts[1].host, "git.carta.rocks")
+        XCTAssertEqual(hosts[0].org, "contoso")
+        XCTAssertEqual(hosts[1].host, "git.example.com")
         XCTAssertEqual(hosts[1].kind, .selfHosted)
-        XCTAssertEqual(hosts[1].org, "carta")
+        XCTAssertEqual(hosts[1].org, "contoso")
     }
 
     /// The self-hosted row has to adopt the old token or PRs silently stop resolving after upgrade.
     func testSelfHostedRowAdoptsTheLegacyTokenOnFirstRead() throws {
-        defaults.set(["carta"], forKey: PullRequestExtension.ownersKey)
-        defaults.set("git.carta.rocks", forKey: PullRequestExtension.forgejoHostKey)
+        defaults.set(["contoso"], forKey: PullRequestExtension.ownersKey)
+        defaults.set("git.example.com", forKey: PullRequestExtension.forgejoHostKey)
         KeychainStore.write("legacy-token", service: legacyService)
 
         let store = makeStore()
@@ -79,8 +79,8 @@ final class GitHostStoreTests: XCTestCase {
 
     /// A keychain prompt on the launch path freezes the app, so init must not touch the keychain.
     func testInitDoesNotReadTheKeychain() {
-        defaults.set(["carta"], forKey: PullRequestExtension.ownersKey)
-        defaults.set("git.carta.rocks", forKey: PullRequestExtension.forgejoHostKey)
+        defaults.set(["contoso"], forKey: PullRequestExtension.ownersKey)
+        defaults.set("git.example.com", forKey: PullRequestExtension.forgejoHostKey)
         var reads: [String] = []
 
         let store = GitHostStore(
@@ -107,7 +107,7 @@ final class GitHostStoreTests: XCTestCase {
     }
 
     func testMigrationRunsOnceAndKeepsIdsStable() {
-        defaults.set(["carta"], forKey: PullRequestExtension.ownersKey)
+        defaults.set(["contoso"], forKey: PullRequestExtension.ownersKey)
         let first = track(makeStore().hosts)
         let second = makeStore().hosts
 
@@ -115,14 +115,14 @@ final class GitHostStoreTests: XCTestCase {
     }
 
     func testEveryOwnerBecomesItsOwnRow() {
-        defaults.set(["carta", "acme"], forKey: PullRequestExtension.ownersKey)
+        defaults.set(["contoso", "acme"], forKey: PullRequestExtension.ownersKey)
         defaults.set("git.example.com", forKey: PullRequestExtension.forgejoHostKey)
 
         let hosts = track(makeStore().hosts)
 
         XCTAssertEqual(hosts.count, 4)
-        XCTAssertEqual(hosts.filter { $0.kind == .github }.map(\.org), ["carta", "acme"])
-        XCTAssertEqual(hosts.filter { $0.kind == .selfHosted }.map(\.org), ["carta", "acme"])
+        XCTAssertEqual(hosts.filter { $0.kind == .github }.map(\.org), ["contoso", "acme"])
+        XCTAssertEqual(hosts.filter { $0.kind == .selfHosted }.map(\.org), ["contoso", "acme"])
     }
 
     // MARK: - Store
@@ -171,14 +171,14 @@ final class GitHostStoreTests: XCTestCase {
         XCTAssertTrue(GitHostConfig.isGitHubDotCom("github.com"))
         XCTAssertTrue(GitHostConfig.isGitHubDotCom("https://GitHub.com"))
         XCTAssertTrue(GitHostConfig.isGitHubDotCom(" github.com "))
-        XCTAssertFalse(GitHostConfig.isGitHubDotCom("git.carta.rocks"))
+        XCTAssertFalse(GitHostConfig.isGitHubDotCom("git.example.com"))
         XCTAssertFalse(GitHostConfig.isGitHubDotCom("github.company.com"))
     }
 
     /// GitHub can scope to every org; a self-hosted row without an org has nothing to query.
     func testSaveableRules() {
         XCTAssertTrue(GitHostConfig(host: "github.com", org: "").isSaveable)
-        XCTAssertFalse(GitHostConfig(host: "  ", org: "carta").isSaveable)
+        XCTAssertFalse(GitHostConfig(host: "  ", org: "contoso").isSaveable)
         XCTAssertFalse(GitHostConfig(host: "git.example.com", org: " ").isSaveable)
         XCTAssertTrue(GitHostConfig(host: "git.example.com", org: "acme").isSaveable)
     }
