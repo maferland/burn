@@ -171,26 +171,9 @@ final class PullRequestExtension: BurnExtension {
         }
     }
 
-    var todayCount: Int { todayPRs.count }
-    var weekCount: Int { weekPRs.count }
-    var monthCount: Int { monthPRs.count }
-
-    var todayOpenCount: Int { openPRs(in: todayPRs).count }
-    var weekOpenCount: Int    { openPRs(in: weekPRs).count }
-    var monthOpenCount: Int   { openPRs(in: monthPRs).count }
-
-    var todayMergedCount: Int { mergedPRs(in: todayPRs).count }
-    var weekMergedCount: Int  { mergedPRs(in: weekPRs).count }
-    var monthMergedCount: Int { mergedPRs(in: monthPRs).count }
-
     private func avgCost(total: Double, count: Int) -> Double? {
         count > 0 ? total / Double(count) : nil
     }
-
-    // Cost per PR divides by merged count only — open PRs haven't shipped yet.
-    var avgCostPerPR: Double? { avgCost(total: usageService.usageData.todayCost, count: todayMergedCount) }
-    var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: mergedPRs(in: weekPRs).count) }
-    var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: mergedPRs(in: monthPRs).count) }
 
     /// `refresh()` only pulls PR history back to the start of the current month, so there's no
     /// cross-month data to average. "Typical" here is a run rate off month-to-date instead —
@@ -198,16 +181,40 @@ final class PullRequestExtension: BurnExtension {
     private var monthToDateMergedRate: Double? {
         let elapsed = Calendar.current.component(.day, from: Date())
         guard elapsed > 0 else { return nil }
-        return Double(monthMergedCount) / Double(elapsed)
+        return Double(mergedPRs(for: .month).count) / Double(elapsed)
     }
 
-    var typicalDayMergedCount: Double? { monthToDateMergedRate }
-    var typicalWeekMergedCount: Double? { monthToDateMergedRate.map { $0 * 7 } }
-    var typicalMonthMergedCount: Double? {
-        guard let rate = monthToDateMergedRate,
-              let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count
-        else { return nil }
-        return rate * Double(daysInMonth)
+    /// Every period-scoped number the tab shows, in one place — was five properties times three
+    /// periods (today/week/month Count, OpenCount, MergedCount, avgCostPerPR, typicalMergedCount)
+    /// before this, each a copy-pasted switch over the same three cases.
+    func stats(for period: PRPeriod) -> PRPeriodStats {
+        let prs: [PullRequest]
+        let total: Double
+        let typicalCount: Double?
+        switch period {
+        case .today:
+            prs = todayPRs
+            total = usageService.usageData.todayCost
+            typicalCount = monthToDateMergedRate
+        case .week:
+            prs = weekPRs
+            total = usageService.usageData.weekTotal
+            typicalCount = monthToDateMergedRate.map { $0 * 7 }
+        case .month:
+            prs = monthPRs
+            total = usageService.usageData.monthTotal
+            typicalCount = monthToDateMergedRate.flatMap { rate in
+                Calendar.current.range(of: .day, in: .month, for: Date()).map { rate * Double($0.count) }
+            }
+        }
+        let merged = mergedPRs(in: prs).count
+        return PRPeriodStats(
+            mergedCount: merged,
+            openCount: openPRs(in: prs).count,
+            // Cost per PR divides by merged count only — open PRs haven't shipped yet.
+            average: avgCost(total: total, count: merged),
+            typicalCount: typicalCount
+        )
     }
 
     var tabGlyph: TabGlyph { .asset("PRIcon") }
@@ -220,7 +227,8 @@ final class PullRequestExtension: BurnExtension {
     var state: ExtensionState {
         if let message = errorMessage, prs.isEmpty { return .failed(message) }
         if lastRefresh == nil { return isLoading ? .loading : .dormant }
-        return todayMergedCount > 0 || todayOpenCount > 0 ? .live : .dormant
+        let today = stats(for: .today)
+        return today.mergedCount > 0 || today.openCount > 0 ? .live : .dormant
     }
 
     func statusLine() -> String? {
@@ -230,7 +238,7 @@ final class PullRequestExtension: BurnExtension {
         if errorMessage != nil, prs.isEmpty { return nil }
         let merged = mergedPRs(in: todayPRs)
         guard let latest = merged.compactMap(\.mergedAt).max() else {
-            let open = todayOpenCount
+            let open = stats(for: .today).openCount
             return open > 0 ? "\(open) open today" : "Nothing merged today"
         }
         return "\(merged.count) merged, last \(Formatters.ago(latest))"
@@ -239,12 +247,11 @@ final class PullRequestExtension: BurnExtension {
     // ○ = open (pending circle), ⌥ = merged (two branches converging).
     // Unicode glyphs required; SF Symbols don't render in MenuBarExtra labels.
     func menuBarSegment() -> Text? {
-        let open = todayOpenCount
-        let merged = todayMergedCount
-        if merged > 0, let avg = avgCostPerPR {
-            return Text("○ \(open)  ⌥ \(merged) \(String(format: "$%.0f", avg))")
+        let today = stats(for: .today)
+        if today.mergedCount > 0, let avg = today.average {
+            return Text("○ \(today.openCount)  ⌥ \(today.mergedCount) \(String(format: "$%.0f", avg))")
         }
-        return Text("○ \(open)  ⌥ \(merged)")
+        return Text("○ \(today.openCount)  ⌥ \(today.mergedCount)")
     }
 
     func popoverTab() -> AnyView {
@@ -252,7 +259,34 @@ final class PullRequestExtension: BurnExtension {
     }
 }
 
-enum PRPeriod: Hashable { case today, week, month }
+enum PRPeriod: CaseIterable, Hashable {
+    case today, week, month
+
+    var label: String {
+        switch self {
+        case .today: return "today"
+        case .week:  return "this week"
+        case .month: return "this month"
+        }
+    }
+
+    var noun: String {
+        switch self {
+        case .today: return "day"
+        case .week:  return "week"
+        case .month: return "month"
+        }
+    }
+}
+
+/// One period's worth of numbers for the PR tab: the hero, the scope cards, and the pace track
+/// all read from the same snapshot instead of each re-deriving it.
+struct PRPeriodStats {
+    let mergedCount: Int
+    let openCount: Int
+    let average: Double?
+    let typicalCount: Double?
+}
 
 struct PullRequestTabView: View {
     let ext: PullRequestExtension
@@ -308,26 +342,27 @@ struct PullRequestTabView: View {
 
     // MARK: - Hero
 
+    private var stats: PRPeriodStats { ext.stats(for: selectedPeriod) }
+
     @ViewBuilder
     private var hero: some View {
-        let merged = mergedCount
-        if let avg = periodAverage {
+        if let avg = stats.average {
             EmberHero(cost: avg) { heroCaption }
         } else {
-            EmberHero(primary: "\(merged)", secondary: nil) { heroCaption }
+            EmberHero(primary: "\(stats.mergedCount)", secondary: nil) { heroCaption }
         }
     }
 
     private var heroCaption: some View {
         Group {
-            if periodAverage != nil {
-                Text("per shipped PR \(periodLabel) · ")
-                    + Text("\(mergedCount)").bold().foregroundColor(Ember.text(0.9))
+            if stats.average != nil {
+                Text("per shipped PR \(selectedPeriod.label) · ")
+                    + Text("\(stats.mergedCount)").bold().foregroundColor(Ember.text(0.9))
                     + Text(" merged, ")
-                    + Text("\(openCount)").bold().foregroundColor(Ember.text(0.9))
+                    + Text("\(stats.openCount)").bold().foregroundColor(Ember.text(0.9))
                     + Text(" open")
             } else {
-                Text("merged \(periodLabel) · nothing to divide cost into yet")
+                Text("merged \(selectedPeriod.label) · nothing to divide cost into yet")
             }
         }
     }
@@ -338,36 +373,43 @@ struct PullRequestTabView: View {
     /// shows count + cost-per-PR instead of a bare label.
     private var scopeCards: some View {
         HStack(spacing: 8) {
-            scopeCard(label: "Today", period: .today, count: ext.todayMergedCount, costPerPR: ext.avgCostPerPR)
-            scopeCard(label: "Week", period: .week, count: ext.weekMergedCount, costPerPR: ext.avgCostPerPRWeek)
-            scopeCard(label: Formatters.monthLabel(Date()), period: .month, count: ext.monthMergedCount, costPerPR: ext.avgCostPerPRMonth)
+            ForEach(PRPeriod.allCases, id: \.self) { period in
+                let periodStats = ext.stats(for: period)
+                EmberScopeCard(
+                    label: cardTitle(period),
+                    count: periodStats.mergedCount,
+                    costPerPR: periodStats.average,
+                    isSelected: selectedPeriod == period,
+                    onSelect: { withAnimation(EmberMotion.pill) { selectedPeriod = period } }
+                )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
     }
 
-    private func scopeCard(label: String, period: PRPeriod, count: Int, costPerPR: Double?) -> some View {
-        EmberScopeCard(
-            label: label,
-            count: count,
-            costPerPR: costPerPR,
-            isSelected: selectedPeriod == period,
-            onSelect: { withAnimation(EmberMotion.pill) { selectedPeriod = period } }
-        )
+    /// A short noun for the card face ("Today", "Week"), distinct from .label's sentence form
+    /// ("today", "this week") — the month card names the actual month, so it can't be pure either.
+    private func cardTitle(_ period: PRPeriod) -> String {
+        switch period {
+        case .today: return "Today"
+        case .week:  return "Week"
+        case .month: return Formatters.monthLabel(Date())
+        }
     }
 
     /// Repurposes the pace-bar pattern from the cost track: selected scope's merged count against
     /// its own typical baseline, the same shape Usage's pace track uses for cost.
     @ViewBuilder
     private var paceTrack: some View {
-        let current = Double(mergedCount)
-        if let typical = typicalCount, typical > 0 {
+        let current = Double(stats.mergedCount)
+        if let typical = stats.typicalCount, typical > 0 {
             let scale = max(current, typical) * 1.25
             EmberTrack(
                 fill: scale > 0 ? current / scale : 0,
                 tick: scale > 0 ? typical / scale : nil,
-                leading: "\(periodLabel) \(mergedCount)",
-                trailing: "typical \(periodNoun) \(formatTypicalCount(typical))"
+                leading: "\(selectedPeriod.label) \(stats.mergedCount)",
+                trailing: "typical \(selectedPeriod.noun) \(formatTypicalCount(typical))"
             )
             .padding(.top, 14)
             .padding(.bottom, 16)
@@ -433,7 +475,7 @@ struct PullRequestTabView: View {
                 rows(open)
             }
             if !merged.isEmpty {
-                sectionLabel("Merged \(periodLabel)")
+                sectionLabel("Merged \(selectedPeriod.label)")
                 rows(merged)
             }
         }
@@ -476,59 +518,9 @@ struct PullRequestTabView: View {
         .padding(.top, 10)
     }
 
-    // MARK: - Period
-
-    private var periodAverage: Double? {
-        switch selectedPeriod {
-        case .today: return ext.avgCostPerPR
-        case .week:  return ext.avgCostPerPRWeek
-        case .month: return ext.avgCostPerPRMonth
-        }
-    }
-
-    private var mergedCount: Int {
-        switch selectedPeriod {
-        case .today: return ext.todayMergedCount
-        case .week:  return ext.weekMergedCount
-        case .month: return ext.monthMergedCount
-        }
-    }
-
-    private var openCount: Int {
-        switch selectedPeriod {
-        case .today: return ext.todayOpenCount
-        case .week:  return ext.weekOpenCount
-        case .month: return ext.monthOpenCount
-        }
-    }
-
-    private var typicalCount: Double? {
-        switch selectedPeriod {
-        case .today: return ext.typicalDayMergedCount
-        case .week:  return ext.typicalWeekMergedCount
-        case .month: return ext.typicalMonthMergedCount
-        }
-    }
-
-    private var periodNoun: String {
-        switch selectedPeriod {
-        case .today: return "day"
-        case .week:  return "week"
-        case .month: return "month"
-        }
-    }
-
-    private var periodLabel: String {
-        switch selectedPeriod {
-        case .today: return "today"
-        case .week:  return "this week"
-        case .month: return "this month"
-        }
-    }
-
     private var emptyMessage: String {
         if ext.lastRefresh == nil && ext.isLoading { return "Loading…" }
-        return "No PRs \(periodLabel)"
+        return "No PRs \(selectedPeriod.label)"
     }
 }
 

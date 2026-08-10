@@ -1,4 +1,5 @@
 import XCTest
+import ClaudeUsageKit
 @testable import Burn
 
 @MainActor
@@ -54,7 +55,7 @@ final class PullRequestExtensionTests: XCTestCase {
         let ext = makeExtension()
         ext.prs = (1...5).map { pr("open-\($0)", opened: 9) }
 
-        XCTAssertEqual(ext.todayOpenCount, 0, "the count stays period-scoped, per the issue")
+        XCTAssertEqual(ext.stats(for: .today).openCount, 0, "the count stays period-scoped, per the issue")
         XCTAssertEqual(ext.openPRs.count, 5, "but the list itself must still see all five")
     }
 
@@ -71,9 +72,33 @@ final class PullRequestExtensionTests: XCTestCase {
         let daysInMonth = Double(Calendar.current.range(of: .day, in: .month, for: Date())!.count)
         let expectedRate = 2.0 / elapsed
 
-        XCTAssertEqual(ext.typicalDayMergedCount!, expectedRate, accuracy: 0.0001)
-        XCTAssertEqual(ext.typicalWeekMergedCount!, expectedRate * 7, accuracy: 0.0001)
-        XCTAssertEqual(ext.typicalMonthMergedCount!, expectedRate * daysInMonth, accuracy: 0.0001)
+        XCTAssertEqual(ext.stats(for: .today).typicalCount!, expectedRate, accuracy: 0.0001)
+        XCTAssertEqual(ext.stats(for: .week).typicalCount!, expectedRate * 7, accuracy: 0.0001)
+        XCTAssertEqual(ext.stats(for: .month).typicalCount!, expectedRate * daysInMonth, accuracy: 0.0001)
+    }
+
+    /// stats(for:) replaced fifteen period-indexed properties with one function; this pins down
+    /// that merged/open counts and the average still land on the right period.
+    func testStatsCarriesTheRightCountsAndAverageForEachPeriod() {
+        let ext = makeExtension()
+        ext.prs = [
+            pr("today-merged", opened: 0, merged: true),
+            pr("today-open", opened: 0),
+            pr("stale-open", opened: 9),
+        ]
+        ext.usageService.usageData = UsageData(
+            todayCost: 40, last7Days: [], monthTotal: 40, isCurrentWeek: true,
+            weekStart: Date(), weekEnd: Date(), lastRefreshDate: Date(), earliestDate: nil
+        )
+
+        let today = ext.stats(for: .today)
+        XCTAssertEqual(today.mergedCount, 1)
+        XCTAssertEqual(today.openCount, 1, "scoped to today, unlike ext.openPRs")
+        XCTAssertEqual(today.average, 40)
+
+        let week = ext.stats(for: .week)
+        XCTAssertEqual(week.mergedCount, 1)
+        XCTAssertEqual(week.average, 0, "weekTotal defaults to 0 since last7Days is empty in this fixture")
     }
 
     /// Open PRs and the period's merged PRs are computed separately now (Turn 11 groups them into
