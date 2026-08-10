@@ -46,13 +46,21 @@ final class LimitsTests: XCTestCase {
         }
     }
 
-    private let subscriptionBody = """
-    {"five_hour":{"utilization":42.5,"resets_at":"2026-08-03T22:00:00Z"},
-     "seven_day":{"utilization":70.0,"resets_at":"2026-08-08T00:00:00Z"},
-     "seven_day_opus":{"utilization":12.0,"resets_at":null},
-     "seven_day_sonnet":null,
-     "spend":null}
-    """
+    /// resets_at has to stay in the future: a window whose reset has passed reports as fully
+    /// available again (see LimitWindow.hasReset), so a hardcoded past date silently drifted this
+    /// fixture's expectations once real time caught up to it.
+    private var subscriptionBody: String {
+        let iso = ISO8601DateFormatter()
+        let fiveHourReset = iso.string(from: Date().addingTimeInterval(3_600))
+        let weekReset = iso.string(from: Date().addingTimeInterval(5 * 86_400))
+        return """
+        {"five_hour":{"utilization":42.5,"resets_at":"\(fiveHourReset)"},
+         "seven_day":{"utilization":70.0,"resets_at":"\(weekReset)"},
+         "seven_day_opus":{"utilization":12.0,"resets_at":null},
+         "seven_day_sonnet":null,
+         "spend":null}
+        """
+    }
 
     /// Shape returned by an enterprise usage-based seat: every window null, money instead.
     private let creditsBody = """
