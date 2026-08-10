@@ -69,14 +69,14 @@ struct LimitsDashboardView: View {
         if let resetsAt = window.resetsAt, !window.hasReset {
             parts.append(Formatters.resetLabel(resetsAt))
         }
-        parts.append(contentsOf: [staleness(snapshot)].compactMap { $0 })
+        parts.append(contentsOf: [staleness(snapshot), snapshot.failure?.message].compactMap { $0 })
         return parts.joined(separator: " · ")
     }
 
     private func spendCaption(snapshot: AccountSnapshot, spend: SpendSnapshot) -> String {
         var parts = spend.limitDollars
             .map { ["of \(Formatters.costRounded($0)) billed this month"] } ?? ["billed this month"]
-        parts.append(contentsOf: [staleness(snapshot)].compactMap { $0 })
+        parts.append(contentsOf: [staleness(snapshot), snapshot.failure?.message].compactMap { $0 })
         return parts.joined(separator: " · ")
     }
 
