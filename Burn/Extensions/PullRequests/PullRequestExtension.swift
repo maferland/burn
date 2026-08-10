@@ -210,7 +210,7 @@ final class PullRequestExtension: BurnExtension {
         return rate * Double(daysInMonth)
     }
 
-    var tabGlyph: TabGlyph { .symbol("arrow.triangle.branch") }
+    var tabGlyph: TabGlyph { .symbol("arrow.triangle.merge") }
 
     var settingsSubtitle: String? {
         let count = hostStore.hosts.count
@@ -400,25 +400,54 @@ struct PullRequestTabView: View {
         .overlay(alignment: .top) { Rectangle().fill(Ember.hairline).frame(height: 1) }
     }
 
+    /// Open and merged are shown as two labeled groups rather than one flat list — otherwise an
+    /// "0 merged today" card sitting right above a list of week-old open PRs reads as a
+    /// contradiction, even though open PRs are deliberately never scoped to the period.
     @ViewBuilder
     private var prList: some View {
-        let prs = filteredPRs
-        if prs.isEmpty {
+        let open = ext.openPRs.sorted { $0.effectiveDate > $1.effectiveDate }
+        let merged = ext.mergedPRs(for: selectedPeriod).sorted { $0.effectiveDate > $1.effectiveDate }
+        if open.isEmpty && merged.isEmpty {
             Text(emptyMessage)
                 .font(.system(size: 11))
                 .foregroundStyle(Ember.caption)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 22)
-        } else if prs.count > 4 {
+        } else if open.count + merged.count > 4 {
             ScrollView {
-                rows(prs)
+                groupedRows(open: open, merged: merged)
             }
-            .frame(maxHeight: 176)
+            // Tall enough to show a few rows past the fold, not just a sliver of one.
+            .frame(maxHeight: 240)
             .padding(.bottom, 4)
         } else {
-            rows(prs)
+            groupedRows(open: open, merged: merged)
                 .padding(.bottom, 4)
         }
+    }
+
+    private func groupedRows(open: [PullRequest], merged: [PullRequest]) -> some View {
+        VStack(spacing: 0) {
+            if !open.isEmpty {
+                sectionLabel("Open")
+                rows(open)
+            }
+            if !merged.isEmpty {
+                sectionLabel("Merged \(periodLabel)")
+                rows(merged)
+            }
+        }
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(Ember.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 3)
     }
 
     private func rows(_ prs: [PullRequest]) -> some View {
@@ -448,12 +477,6 @@ struct PullRequestTabView: View {
     }
 
     // MARK: - Period
-
-    /// Open PRs sit outside the period entirely — five open from last week don't vanish just
-    /// because nothing merged today. Only the merged half is scoped to the selected period.
-    private var filteredPRs: [PullRequest] {
-        (ext.openPRs + ext.mergedPRs(for: selectedPeriod)).sorted { $0.effectiveDate > $1.effectiveDate }
-    }
 
     private var periodAverage: Double? {
         switch selectedPeriod {

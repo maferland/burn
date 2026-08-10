@@ -76,6 +76,20 @@ final class PullRequestExtensionTests: XCTestCase {
         XCTAssertEqual(ext.typicalMonthMergedCount!, expectedRate * daysInMonth, accuracy: 0.0001)
     }
 
+    /// Open PRs and the period's merged PRs are computed separately now (Turn 11 groups them into
+    /// labeled sections), so this locks in that they're the same underlying sets as before, just
+    /// no longer merged into one flat, unlabeled list.
+    func testOpenAndMergedStayAsSeparateGroups() {
+        let ext = makeExtension()
+        ext.prs = [
+            pr("stale-open", opened: 9),
+            pr("today-merged", opened: 0, merged: true),
+        ]
+
+        XCTAssertEqual(ext.openPRs.map(\.title), ["stale-open"])
+        XCTAssertEqual(ext.mergedPRs(for: .today).map(\.title), ["today-merged"])
+    }
+
     /// effectiveDate is what both the fetch sort and the period filters key off.
     func testEffectiveDatePrefersMergedOverCreated() {
         let open = pr("open", opened: 3)
