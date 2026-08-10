@@ -24,6 +24,30 @@ final class ExtensionRegistryTests: XCTestCase {
         XCTAssertEqual(registry.activeTabId, "alpha")
     }
 
+    func testUnconfiguredExtensionStaysOutOfTheTabStrip() {
+        let registry = ExtensionRegistry()
+        registry.register(StubExtension(id: "alpha"))
+        let codexish = StubExtension(id: "beta", isConfigured: false)
+        registry.register(codexish)
+
+        XCTAssertTrue(registry.isEnabled("beta"), "it stays enabled, it just has nothing to show")
+        XCTAssertEqual(registry.enabledExtensions.map(\.id), ["alpha"])
+        XCTAssertEqual(
+            registry.configurableExtensions.map(\.id), ["alpha", "beta"],
+            "settings still lists it so it can be found once it is set up"
+        )
+    }
+
+    func testConfiguringAnExtensionBringsItsTabBack() {
+        let registry = ExtensionRegistry()
+        let codexish = StubExtension(id: "beta", isConfigured: false)
+        registry.register(codexish)
+        XCTAssertTrue(registry.enabledExtensions.isEmpty)
+
+        codexish.isConfigured = true
+        XCTAssertEqual(registry.enabledExtensions.map(\.id), ["beta"])
+    }
+
     func testRegisterIsIdempotent() {
         let registry = ExtensionRegistry()
         let ext = StubExtension(id: "alpha")
@@ -105,10 +129,12 @@ private final class StubExtension: BurnExtension {
     let id: String
     let displayName: String
     var refreshCount = 0
+    var isConfigured: Bool
 
-    init(id: String) {
+    init(id: String, isConfigured: Bool = true) {
         self.id = id
         self.displayName = id.capitalized
+        self.isConfigured = isConfigured
     }
 
     func refresh() { refreshCount += 1 }

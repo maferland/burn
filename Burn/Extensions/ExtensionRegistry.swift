@@ -61,8 +61,9 @@ final class ExtensionRegistry {
         orderedIds.compactMap { id in extensions.first(where: { $0.id == id }) }
     }
 
+    /// An enabled extension with nothing to show yet stays out of the tab strip until it has data.
     var enabledExtensions: [any BurnExtension] {
-        orderedExtensions.filter { enabledIds.contains($0.id) }
+        orderedExtensions.filter { enabledIds.contains($0.id) && $0.isConfigured }
     }
 
     func isEnabled(_ id: String) -> Bool { enabledIds.contains(id) }

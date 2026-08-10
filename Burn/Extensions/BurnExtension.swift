@@ -13,10 +13,35 @@ protocol BurnExtension: AnyObject {
     func popoverTab() -> AnyView
 
     func settingsView() -> AnyView?
+
+    /// Icon shown in the popover tab strip.
+    var tabGlyph: TabGlyph { get }
+
+    /// One sentence of live state for the popover header, next to the pulse dot.
+    func statusLine() -> String?
+
+    /// Colours the header dot: amber while live, grey when idle, red when the read broke.
+    var state: ExtensionState { get }
+
+    /// Second line under the extension's name in settings.
+    var settingsSubtitle: String? { get }
+
+    /// False when there is nothing on this machine to report yet, which keeps the tab out of the way.
+    var isConfigured: Bool { get }
+
+    /// Clears any in-popover browsing state (a day/week/month offset) back to "now". Called every
+    /// time the popover opens, so wandering off to a past day never sticks past that one look.
+    func resetBrowsing()
 }
 
 extension BurnExtension {
     func settingsView() -> AnyView? { nil }
+    var tabGlyph: TabGlyph { .text(displayName) }
+    func statusLine() -> String? { nil }
+    var state: ExtensionState { .live }
+    var settingsSubtitle: String? { nil }
+    var isConfigured: Bool { true }
+    func resetBrowsing() {}
 }
 
 private struct OpenBurnSettingsKey: EnvironmentKey {
@@ -25,6 +50,14 @@ private struct OpenBurnSettingsKey: EnvironmentKey {
 
 private struct BurnTabBarVisibleKey: EnvironmentKey {
     static let defaultValue: Bool = false
+}
+
+private struct BurnPushDetailKey: EnvironmentKey {
+    static let defaultValue: (AnyView) -> Void = { _ in }
+}
+
+private struct BurnPopDetailKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
 }
 
 extension EnvironmentValues {
@@ -37,5 +70,16 @@ extension EnvironmentValues {
     var burnTabBarVisible: Bool {
         get { self[BurnTabBarVisibleKey.self] }
         set { self[BurnTabBarVisibleKey.self] = newValue }
+    }
+
+    /// Pushes a full-width detail screen over the popover body, keeping the utility bar in place.
+    var burnPushDetail: (AnyView) -> Void {
+        get { self[BurnPushDetailKey.self] }
+        set { self[BurnPushDetailKey.self] = newValue }
+    }
+
+    var burnPopDetail: () -> Void {
+        get { self[BurnPopDetailKey.self] }
+        set { self[BurnPopDetailKey.self] = newValue }
     }
 }

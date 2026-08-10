@@ -23,6 +23,9 @@ struct PullRequest: Decodable, Identifiable, Hashable {
     // GitHub returns "0001-01-01T00:00:00Z" (zero date) for closedAt on open PRs instead of null.
     var mergedAt: Date? { isMerged ? closedAt : nil }
 
+    /// What a PR is sorted and period-filtered by: when it shipped, or when it opened if it hasn't.
+    var effectiveDate: Date { mergedAt ?? createdAt }
+
     // Declared so the synthesized decoder skips provider/hostLabel and keeps decoding gh output as-is.
     enum CodingKeys: String, CodingKey {
         case url, title, createdAt, repository, state, closedAt

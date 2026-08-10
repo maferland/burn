@@ -4,7 +4,17 @@ import ClaudeUsageKit
 
 enum ScreenshotGenerator {
     @MainActor static func generate(outputPath: String, scale: CGFloat = 3.0) {
-        let settings = SettingsStore()
+        // Named explicitly: as the bare debug binary, `.standard` resolves to "Burn" (the process
+        // name), not this bundle id, so it would silently seed from the wrong preferences.
+        let real = UserDefaults(suiteName: "com.maferland.burn") ?? .standard
+        let scratch = UserDefaults(suiteName: "burn.screenshot.settings")!
+        scratch.removePersistentDomain(forName: "burn.screenshot.settings")
+        for key in [SettingsStore.displayModeKey, SettingsStore.refreshIntervalKey] {
+            if let value = real.object(forKey: key) { scratch.set(value, forKey: key) }
+        }
+        let settings = SettingsStore(defaults: scratch)
+        let appearance: AppearanceChoice =
+            ProcessInfo.processInfo.environment["BURN_APPEARANCE"] == "light" ? .light : .dark
         if let mode = ProcessInfo.processInfo.environment["BURN_DISPLAY_MODE"] {
             switch mode.lowercased() {
             case "tokens": settings.displayMode = .tokens
@@ -37,25 +47,42 @@ enum ScreenshotGenerator {
             )
         )
 
+        let codexService = CodexUsageService()
+        codexService.response = mockCodexUsage()
         let registry = ExtensionRegistry()
-        registry.register(UsageExtension(service: service, settings: settings))
-        let prExt = PullRequestExtension(usageService: service)
+        registry.register(UsageExtension(service: service, codexService: codexService, settings: settings))
+        let limitsService = LimitsService(
+            store: LimitsAccountStore(detect: { [] }),
+            cacheFile: FileManager.default.temporaryDirectory.appendingPathComponent("burn-shot-limits.json")
+        )
+        limitsService.response = mockLimits()
+        registry.register(LimitsExtension(service: limitsService))
+        let prExt = PullRequestExtension(usageService: service, hostStore: mockHostStore())
         prExt.prs = mockPRs()
         prExt.lastRefresh = Date()
         registry.register(prExt)
         if let activeId = ProcessInfo.processInfo.environment["BURN_ACTIVE_TAB"] {
             registry.activeTabId = activeId
         }
-        let view = MenuBarView(service: service, settings: settings, registry: registry)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .padding(4)
-            .environment(\.colorScheme, .dark)
+        applyState(service: service, prs: prExt, limits: limitsService, days: days)
+        let view = MenuBarView(
+            service: service, settings: settings, registry: registry, providers: mockProviders()
+        )
+            .background(Ember.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(6)
+            .environment(\.colorScheme, appearance == .light ? .light : .dark)
 
         let renderer = ImageRenderer(content: view)
         renderer.scale = scale
 
-        guard let image = renderer.nsImage,
+        // Offscreen rendering has no window to inherit from, so the dynamic tokens need an
+        // appearance made current by hand or they all resolve to whatever the system is doing.
+        var rendered: NSImage?
+        (appearance.nsAppearance ?? NSAppearance.currentDrawing())
+            .performAsCurrentDrawingAppearance { rendered = renderer.nsImage }
+
+        guard let image = rendered,
               let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff),
               let png = bitmap.representation(using: .png, properties: [:])
@@ -72,6 +99,57 @@ enum ScreenshotGenerator {
             fputs("Failed to write: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    /// `BURN_STATE` rewinds the mocks into loading, empty or failed, which are otherwise unreachable here.
+    @MainActor private static func applyState(
+        service: UsageService, prs: PullRequestExtension, limits: LimitsService, days: [DailyUsage]
+    ) {
+        switch ProcessInfo.processInfo.environment["BURN_STATE"] {
+        case "loading":
+            service.lastResponse = nil
+            service.usageData = .empty
+            service.isLoading = true
+            prs.prs = []
+            prs.lastRefresh = nil
+            prs.isLoading = true
+            limits.response = .empty
+            limits.isLoading = true
+        case "empty":
+            let closed = days.dropLast() + [zeroed(days[days.count - 1])]
+            service.usageData = UsageData(
+                todayCost: 0, last7Days: Array(closed), monthTotal: 142.58,
+                isCurrentWeek: true,
+                weekStart: Calendar.current.date(byAdding: .day, value: -6, to: Date())!,
+                weekEnd: Date(), lastRefreshDate: Date(),
+                earliestDate: days.first?.date
+            )
+        case "error":
+            service.lastResponse = nil
+            service.usageData = .empty
+            service.errorMessage = "~/.claude/projects isn't readable. Grant Full Disk Access, or point Burn at another home."
+            prs.prs = []
+            prs.errorMessage = "git.example.com returned 401. The token may have expired."
+            limits.response = LimitsResponse(accounts: [
+                AccountSnapshot(
+                    account: LimitsAccount(
+                        provider: .claude, label: "personal", homePath: nil, isAutoDetected: true
+                    ),
+                    planLabel: nil, windows: [], spend: nil, capturedAt: nil, source: .api,
+                    failure: LimitsFailure(kind: .network, detail: "api.anthropic.com timed out")
+                ),
+            ])
+        default:
+            break
+        }
+    }
+
+    private static func zeroed(_ day: DailyUsage) -> DailyUsage {
+        DailyUsage(
+            date: day.date, inputTokens: 0, outputTokens: 0,
+            cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0,
+            totalCost: 0, modelsUsed: [], modelBreakdowns: []
+        )
     }
 
     private static func mockPRs() -> [PullRequest] {
@@ -112,7 +190,137 @@ enum ScreenshotGenerator {
                 provider: .forgejo,
                 hostLabel: "git.example.com"
             ),
+            // Stale and open — the row this bug used to drop from the "Today" list.
+            PullRequest(
+                url: "https://github.com/maferland/burn/pull/1",
+                title: "Week navigation keyboard shortcuts",
+                createdAt: cal.date(byAdding: .day, value: -9, to: now)!,
+                repository: .init(nameWithOwner: "maferland/burn"),
+                state: "OPEN",
+                closedAt: nil
+            ),
         ]
+    }
+
+    /// Claude connected, Codex signed in but not yet connected, so the list shows both states.
+    @MainActor private static func mockProviders() -> ProviderStore {
+        let defaults = UserDefaults(suiteName: "burn.screenshot.providers")!
+        defaults.removePersistentDomain(forName: "burn.screenshot.providers")
+        let store = ProviderStore(defaults: defaults, signedIn: { _, _ in true })
+        store.connect(.claude)
+        store.disconnect(.codex)
+        return store
+    }
+
+    /// Isolated defaults and a canned token read, so screenshots never depend on the real config.
+    @MainActor private static func mockHostStore() -> GitHostStore {
+        let defaults = UserDefaults(suiteName: "burn.screenshot.hosts")!
+        defaults.removePersistentDomain(forName: "burn.screenshot.hosts")
+        let store = GitHostStore(
+            defaults: defaults,
+            legacyTokenService: "burn.screenshot.legacy",
+            readToken: { _ in .value("mock-token") }
+        )
+        for host in store.hosts {
+            store.remove(host.id)
+        }
+        store.upsert(GitHostConfig(host: "github.com", org: "carta"))
+        store.upsert(GitHostConfig(host: "git.carta.rocks", org: "carta"))
+        return store
+    }
+
+    private static func mockLimits() -> LimitsResponse {
+        let now = Date()
+        let personal = LimitsAccount(
+            provider: .claude, label: "personal", homePath: "~/.claude-personal", isAutoDetected: false
+        )
+        let work = LimitsAccount(provider: .claude, label: "work", homePath: nil, isAutoDetected: true)
+        let codex = LimitsAccount(provider: .codex, label: "codex", homePath: nil, isAutoDetected: true)
+
+        return LimitsResponse(accounts: [
+            AccountSnapshot(
+                account: personal,
+                planLabel: "Max 20×",
+                windows: [
+                    LimitWindow(kind: .fiveHour, usedPercent: 38, resetsAt: now.addingTimeInterval(2 * 3_600)),
+                    LimitWindow(kind: .week, usedPercent: 70, resetsAt: now.addingTimeInterval(3 * 86_400)),
+                    LimitWindow(kind: .weekOpus, usedPercent: 12, resetsAt: now.addingTimeInterval(3 * 86_400)),
+                ],
+                spend: nil, capturedAt: now, source: .api, failure: nil
+            ),
+            AccountSnapshot(
+                account: work,
+                planLabel: "Enterprise",
+                windows: [],
+                spend: SpendSnapshot(usedDollars: 73.35, limitDollars: 10_000),
+                capturedAt: now, source: .api, failure: nil
+            ),
+            AccountSnapshot(
+                account: codex,
+                planLabel: "Pro",
+                windows: [
+                    LimitWindow(kind: .fiveHour, usedPercent: 21, resetsAt: now.addingTimeInterval(4_200)),
+                    LimitWindow(kind: .week, usedPercent: 44, resetsAt: now.addingTimeInterval(4 * 86_400)),
+                ],
+                spend: nil, capturedAt: now.addingTimeInterval(-900), source: .rolloutLogs, failure: nil
+            ),
+        ])
+    }
+
+    private static func mockCodexUsage() -> CodexUsageResponse {
+        let calendar = Calendar.current
+        let today = Date()
+        let costs: [Double] = [1.90, 4.10, 0.80, 6.25, 3.40, 5.10, 2.85]
+
+        let daily: [CodexDailyUsage] = (0..<7).map { i in
+            let date = calendar.date(byAdding: .day, value: -(6 - i), to: today)!
+            let tokens = CodexTokens(
+                inputTokens: Int(costs[i] * 900_000),
+                cachedInputTokens: Int(costs[i] * 610_000),
+                outputTokens: Int(costs[i] * 24_000),
+                reasoningOutputTokens: Int(costs[i] * 9_000)
+            )
+            return CodexDailyUsage(
+                date: CodexSessionReader.dateString(from: date),
+                tokens: tokens,
+                estimatedCost: costs[i],
+                modelBreakdowns: [
+                    CodexModelBreakdown(
+                        modelName: "gpt-5.1-codex-max",
+                        tokens: tokens,
+                        estimatedCost: costs[i] * 0.78
+                    ),
+                    CodexModelBreakdown(
+                        modelName: "gpt-5.1-codex",
+                        tokens: tokens,
+                        estimatedCost: costs[i] * 0.22
+                    ),
+                ]
+            )
+        }
+
+        let limits = CodexRateLimits(
+            capturedAt: calendar.date(byAdding: .hour, value: -2, to: today)!,
+            planType: "pro",
+            primary: CodexRateLimitWindow(
+                usedPercent: 61,
+                windowMinutes: 300,
+                resetsAt: calendar.date(byAdding: .hour, value: 3, to: today)!
+            ),
+            secondary: CodexRateLimitWindow(
+                usedPercent: 47,
+                windowMinutes: 10_080,
+                resetsAt: calendar.date(byAdding: .day, value: 4, to: today)!
+            )
+        )
+
+        return CodexUsageResponse(
+            daily: daily,
+            tokens: daily.reduce(CodexTokens()) { $0 + $1.tokens },
+            estimatedCost: costs.reduce(0, +),
+            rateLimits: limits,
+            skippedCompressedFiles: 3
+        )
     }
 
     private static func mockDays() -> [DailyUsage] {

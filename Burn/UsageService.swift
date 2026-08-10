@@ -11,13 +11,16 @@ final class UsageService: @unchecked Sendable {
     private var refreshTask: Task<Void, Never>?
     private let settings: SettingsStore
 
-    private static let cacheFile: URL = {
+    private static let defaultCacheFile: URL = {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return caches.appendingPathComponent("com.maferland.burn/usage-cache.json")
     }()
 
-    init(settings: SettingsStore) {
+    private let cacheFile: URL
+
+    init(settings: SettingsStore, cacheFile: URL? = nil) {
         self.settings = settings
+        self.cacheFile = cacheFile ?? Self.defaultCacheFile
         loadCache()
     }
 
@@ -53,13 +56,26 @@ final class UsageService: @unchecked Sendable {
 
     // MARK: - Disk cache
 
+    private var typicalSamples: [TypicalPeriod.Sample] {
+        (lastResponse?.daily ?? []).map {
+            .init(date: $0.date, cost: $0.totalCost, tokens: $0.inputTokens + $0.outputTokens)
+        }
+    }
+
+    var typicalDayCost: Double { TypicalPeriod.day(typicalSamples).cost }
+    var typicalDayTokens: Int { TypicalPeriod.day(typicalSamples).tokens }
+    var typicalWeekCost: Double { TypicalPeriod.week(typicalSamples).cost }
+    var typicalWeekTokens: Int { TypicalPeriod.week(typicalSamples).tokens }
+    var typicalMonthCost: Double { TypicalPeriod.month(typicalSamples).cost }
+    var typicalMonthTokens: Int { TypicalPeriod.month(typicalSamples).tokens }
+
     func usageData(weekOffset: Int) -> UsageData {
         guard let response = lastResponse else { return .empty }
         return UsageData.from(response: response, weekOffset: weekOffset)
     }
 
     private func loadCache() {
-        guard let data = try? Data(contentsOf: Self.cacheFile),
+        guard let data = try? Data(contentsOf: cacheFile),
               let response = try? JSONDecoder().decode(CCUsageResponse.self, from: data) else {
             return
         }
@@ -68,8 +84,14 @@ final class UsageService: @unchecked Sendable {
     }
 
     private func saveCache(_ response: CCUsageResponse) {
-        let dir = Self.cacheFile.deletingLastPathComponent()
+        let dir = cacheFile.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(response).write(to: Self.cacheFile)
+        try? JSONEncoder().encode(response).write(to: cacheFile)
+    }
+}
+
+extension UsageService {
+    func day(_ date: String) -> DailyUsage? {
+        lastResponse?.daily.first { $0.date == date }
     }
 }

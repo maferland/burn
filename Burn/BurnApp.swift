@@ -14,7 +14,8 @@ struct BurnApp: App {
             MenuBarView(
                 service: appDelegate.service,
                 settings: appDelegate.settings,
-                registry: appDelegate.registry
+                registry: appDelegate.registry,
+                providers: appDelegate.providers
             )
         } label: {
             MenuBarLabel(registry: appDelegate.registry)
@@ -36,24 +37,26 @@ struct MenuBarLabel: View {
     }
 
     static func loadMenuBarIcon() -> NSImage {
-        guard let url = BurnResources.bundle.url(forResource: "MenuBarIcon@2x", withExtension: "png"),
-              let image = NSImage(contentsOf: url) else {
-            return NSImage(systemSymbolName: "dollarsign.circle", accessibilityDescription: "Burn")
-                ?? NSImage(size: NSSize(width: 18, height: 18))
-        }
-        image.size = NSSize(width: 18, height: 18)
-        image.isTemplate = true
-        return image
+        BurnResources.templateIcon(named: "MenuBarIcon", size: 18)
     }
 }
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
+    let providers = ProviderStore()
     lazy var service = UsageService(settings: settings)
+    lazy var codexService = CodexUsageService()
+    // Codex only reports quota while it runs, so Limits reuses the snapshot the Codex tab already parsed.
+    lazy var limitsService = LimitsService(rolloutLimits: { [weak self] in self?.codexService.response.rateLimits })
     lazy var registry: ExtensionRegistry = {
         let r = ExtensionRegistry()
-        r.register(UsageExtension(service: service, settings: settings))
+        r.register(UsageExtension(
+            service: service, codexService: codexService, settings: settings, providers: providers
+        ))
+        // Codex lives inside Usage now, behind the provider chip. CodexExtension is kept, not
+        // deleted: re-register it here to get the standalone tab back.
+        r.register(LimitsExtension(service: limitsService))
         r.register(PullRequestExtension(usageService: service))
         return r
     }()
@@ -67,6 +70,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.setActivationPolicy(.accessory)
+        settings.appearance.apply()
         registry.startAutoRefresh(intervalMinutes: settings.refreshIntervalMinutes)
     }
 }

@@ -18,56 +18,24 @@ final class PullRequestExtension: BurnExtension {
     var isLoading = false
     var lastRefresh: Date?
 
-    var owners: [String] {
-        didSet { UserDefaults.standard.set(owners, forKey: Self.ownersKey) }
-    }
+    let hostStore: GitHostStore
 
-    var forgejoHost: String {
-        didSet { UserDefaults.standard.set(forgejoHost, forKey: Self.forgejoHostKey) }
-    }
+    /// Set by the detail screen so the list can flash the row that just changed.
+    var lastSavedHostId: UUID?
 
-    private var forgejoToken: String?
-    private var forgejoTokenIssue: String?
-
-    var hasForgejoToken: Bool { forgejoToken != nil }
-
-    init(usageService: UsageService) {
+    init(usageService: UsageService, hostStore: GitHostStore? = nil) {
         self.usageService = usageService
-        self.owners = UserDefaults.standard.array(forKey: Self.ownersKey) as? [String] ?? []
-        self.forgejoHost = UserDefaults.standard.string(forKey: Self.forgejoHostKey) ?? ""
-        loadForgejoToken()
+        self.hostStore = hostStore ?? GitHostStore()
     }
 
-    func setForgejoToken(_ token: String) {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            KeychainStore.delete(service: Self.forgejoTokenService)
-        } else {
-            KeychainStore.write(trimmed, service: Self.forgejoTokenService)
+    /// Tokens are read inside the fetch, never here: a keychain prompt on the main actor freezes the UI.
+    private func plans() -> [HostFetchPlan] {
+        hostStore.hosts.map { host in
+            HostFetchPlan(
+                host: host,
+                legacyService: host.adoptsLegacyToken ? hostStore.legacyTokenService : nil
+            )
         }
-        loadForgejoToken()
-    }
-
-    /// Read back rather than trusting the write, so a keychain that refuses this build says so.
-    private func loadForgejoToken() {
-        switch KeychainStore.read(service: Self.forgejoTokenService) {
-        case .value(let token):
-            forgejoToken = token
-            forgejoTokenIssue = nil
-        case .missing:
-            forgejoToken = nil
-            forgejoTokenIssue = forgejoHost.isEmpty ? nil : "No token stored for \(forgejoHost). Add one in settings."
-        case .refused(let status):
-            forgejoToken = nil
-            forgejoTokenIssue = forgejoHost.isEmpty
-                ? nil
-                : "The keychain refused the \(forgejoHost) token (\(status)). Re-enter it in settings."
-        }
-    }
-
-    private var forgejoConfig: ForgejoConfig? {
-        guard let forgejoToken else { return nil }
-        return ForgejoConfig(host: forgejoHost, token: forgejoToken)
     }
 
     func refresh() {
@@ -75,38 +43,82 @@ final class PullRequestExtension: BurnExtension {
         isLoading = true
         errorMessage = nil
         // Re-read on every refresh: a token added or rebound since launch shouldn't need a restart.
-        loadForgejoToken()
-        let owners = self.owners
-        let config = forgejoConfig
-        let tokenIssue = forgejoTokenIssue
+        let plans = plans()
         let monthStart = Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: Date())) ?? Date()
         // The rolling 7-day week window can reach into the previous month, so fetch from
         // whichever start is earlier — otherwise weekPRs undercounts near the start of a month.
         let fetchStart = min(monthStart, usageService.usageData.weekStart)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            async let github = Self.attempt { try await GitHubPRService.fetchAll(since: fetchStart, owners: owners) }
-            async let forgejo = Self.attempt {
-                guard let config else { return .empty }
-                return try await ForgejoPRService.fetchAll(config: config, since: fetchStart, owners: owners)
+            let results = await withTaskGroup(of: Attempt.self) { group in
+                for plan in plans {
+                    group.addTask { await Self.fetch(plan, since: fetchStart) }
+                }
+                var collected: [Attempt] = []
+                for await attempt in group { collected.append(attempt) }
+                return collected
             }
-            let (githubResult, forgejoResult) = await (github, forgejo)
-            let results = [githubResult, forgejoResult]
 
-            // One host failing shouldn't blank out the other's PRs.
+            // One host failing shouldn't blank out the others' PRs.
             let fetched = results.compactMap(\.result)
-            self.prs = fetched.flatMap(\.prs).sorted { ($0.mergedAt ?? $0.createdAt) > ($1.mergedAt ?? $1.createdAt) }
+            self.prs = fetched.flatMap(\.prs).sorted { $0.effectiveDate > $1.effectiveDate }
             self.truncated = fetched.contains(where: \.truncated)
-            let errors = [tokenIssue].compactMap { $0 } + results.compactMap(\.errorMessage)
+            let errors = results.compactMap(\.errorMessage)
             self.errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+            for id in results.compactMap(\.adoptedHostId) {
+                self.hostStore.clearLegacyAdoption(id)
+            }
             self.lastRefresh = Date()
             self.isLoading = false
         }
     }
 
-    private struct Attempt {
+    private struct HostFetchPlan: Sendable {
+        let host: GitHostConfig
+        let legacyService: String?
+    }
+
+    private nonisolated static func fetch(_ plan: HostFetchPlan, since: Date) async -> Attempt {
+        if plan.host.usesGitHubCLI {
+            return await attempt {
+                try await GitHubPRService.fetchAll(since: since, owners: plan.host.owners)
+            }
+        }
+
+        let lookup = resolveToken(plan)
+        guard let token = lookup.token, let config = ForgejoConfig(host: plan.host.host, token: token) else {
+            return Attempt(result: nil, errorMessage: lookup.issue, adoptedHostId: nil)
+        }
+        var attempt = await attempt {
+            try await ForgejoPRService.fetchAll(config: config, since: since, owners: plan.host.owners)
+        }
+        attempt.adoptedHostId = lookup.adopted ? plan.host.id : nil
+        return attempt
+    }
+
+    /// Runs off the main actor so the one-time authorization dialog can't block the popover.
+    private nonisolated static func resolveToken(
+        _ plan: HostFetchPlan
+    ) -> (token: String?, issue: String?, adopted: Bool) {
+        switch KeychainStore.read(service: plan.host.tokenService) {
+        case .value(let token):
+            return (token, nil, false)
+        case .refused(let status):
+            return (nil, "The keychain refused the \(plan.host.label) token (\(status)). Re-enter it in settings.", false)
+        case .missing:
+            guard let legacyService = plan.legacyService,
+                  case .value(let token) = KeychainStore.read(service: legacyService) else {
+                return (nil, "No token stored for \(plan.host.label). Add one in settings.", false)
+            }
+            KeychainStore.write(token, service: plan.host.tokenService)
+            return (token, nil, true)
+        }
+    }
+
+    private struct Attempt: Sendable {
         let result: PRFetchResult?
         let errorMessage: String?
+        var adoptedHostId: UUID?
     }
 
     private nonisolated static func attempt(_ work: () async throws -> PRFetchResult) async -> Attempt {
@@ -118,25 +130,20 @@ final class PullRequestExtension: BurnExtension {
     }
 
     func settingsView() -> AnyView? {
-        AnyView(PullRequestSettingsView(ext: self))
-    }
-
-    // For open PRs: anchor on createdAt. For merged: anchor on mergedAt.
-    private func effectiveDate(_ pr: PullRequest) -> Date {
-        pr.mergedAt ?? pr.createdAt
+        AnyView(HostsListView(ext: self))
     }
 
     var todayPRs: [PullRequest] {
         let cal = Calendar.current
         let today = Date()
-        return prs.filter { cal.isDate(effectiveDate($0), inSameDayAs: today) }
+        return prs.filter { cal.isDate($0.effectiveDate, inSameDayAs: today) }
     }
 
     var weekPRs: [PullRequest] {
         let data = usageService.usageData
         guard data.weekStart != data.weekEnd else { return todayPRs }
         let start = Calendar.current.startOfDay(for: data.weekStart)
-        return prs.filter { effectiveDate($0) >= start }
+        return prs.filter { $0.effectiveDate >= start }
     }
 
     var monthPRs: [PullRequest] {
@@ -144,13 +151,25 @@ final class PullRequestExtension: BurnExtension {
         let now = Date()
         let monthComps = cal.dateComponents([.year, .month], from: now)
         return prs.filter {
-            let prComps = cal.dateComponents([.year, .month], from: effectiveDate($0))
+            let prComps = cal.dateComponents([.year, .month], from: $0.effectiveDate)
             return prComps.year == monthComps.year && prComps.month == monthComps.month
         }
     }
 
     private func openPRs(in list: [PullRequest]) -> [PullRequest] { list.filter { !$0.isMerged } }
     private func mergedPRs(in list: [PullRequest]) -> [PullRequest] { list.filter { $0.isMerged } }
+
+    /// An open PR is open regardless of when it was opened, so unlike the counts above this list
+    /// deliberately isn't scoped to a period — that's the whole fix.
+    var openPRs: [PullRequest] { openPRs(in: prs) }
+
+    func mergedPRs(for period: PRPeriod) -> [PullRequest] {
+        switch period {
+        case .today: return mergedPRs(in: todayPRs)
+        case .week:  return mergedPRs(in: weekPRs)
+        case .month: return mergedPRs(in: monthPRs)
+        }
+    }
 
     var todayCount: Int { todayPRs.count }
     var weekCount: Int { weekPRs.count }
@@ -173,6 +192,50 @@ final class PullRequestExtension: BurnExtension {
     var avgCostPerPRWeek: Double? { avgCost(total: usageService.usageData.weekTotal, count: mergedPRs(in: weekPRs).count) }
     var avgCostPerPRMonth: Double? { avgCost(total: usageService.usageData.monthTotal, count: mergedPRs(in: monthPRs).count) }
 
+    /// `refresh()` only pulls PR history back to the start of the current month, so there's no
+    /// cross-month data to average. "Typical" here is a run rate off month-to-date instead —
+    /// how many PRs merge per day this month, scaled to the period.
+    private var monthToDateMergedRate: Double? {
+        let elapsed = Calendar.current.component(.day, from: Date())
+        guard elapsed > 0 else { return nil }
+        return Double(monthMergedCount) / Double(elapsed)
+    }
+
+    var typicalDayMergedCount: Double? { monthToDateMergedRate }
+    var typicalWeekMergedCount: Double? { monthToDateMergedRate.map { $0 * 7 } }
+    var typicalMonthMergedCount: Double? {
+        guard let rate = monthToDateMergedRate,
+              let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count
+        else { return nil }
+        return rate * Double(daysInMonth)
+    }
+
+    var tabGlyph: TabGlyph { .asset("PRIcon") }
+
+    var settingsSubtitle: String? {
+        let count = hostStore.hosts.count
+        return count == 1 ? "1 host connected" : "\(count) hosts connected"
+    }
+
+    var state: ExtensionState {
+        if let message = errorMessage, prs.isEmpty { return .failed(message) }
+        if lastRefresh == nil { return isLoading ? .loading : .dormant }
+        return todayMergedCount > 0 || todayOpenCount > 0 ? .live : .dormant
+    }
+
+    func statusLine() -> String? {
+        guard lastRefresh != nil else { return nil }
+        // A total failure has nothing to report; let the error card speak instead of claiming
+        // "nothing merged" as if the read actually succeeded.
+        if errorMessage != nil, prs.isEmpty { return nil }
+        let merged = mergedPRs(in: todayPRs)
+        guard let latest = merged.compactMap(\.mergedAt).max() else {
+            let open = todayOpenCount
+            return open > 0 ? "\(open) open today" : "Nothing merged today"
+        }
+        return "\(merged.count) merged, last \(Formatters.ago(latest))"
+    }
+
     // ○ = open (pending circle), ⌥ = merged (two branches converging).
     // Unicode glyphs required; SF Symbols don't render in MenuBarExtra labels.
     func menuBarSegment() -> Text? {
@@ -189,134 +252,233 @@ final class PullRequestExtension: BurnExtension {
     }
 }
 
-enum PRPeriod { case today, week, month }
+enum PRPeriod: Hashable { case today, week, month }
 
 struct PullRequestTabView: View {
     let ext: PullRequestExtension
 
     @Environment(\.openBurnSettings) private var openSettings
-    @Environment(\.burnTabBarVisible) private var tabBarVisible
-    @State private var selectedPeriod: PRPeriod = .today
+
+    @State private var selectedPeriod: PRPeriod = PullRequestTabView.initialPeriod()
+
+    /// Screenshot knob, same family as BURN_ACTIVE_TAB and BURN_DAY_OFFSET.
+    private static func initialPeriod() -> PRPeriod {
+        switch ProcessInfo.processInfo.environment["BURN_PR_PERIOD"] {
+        case "today": return .today
+        case "month": return .month
+        default:      return .week
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if !tabBarVisible {
-                header
-                Divider()
+            switch ext.state {
+            case .loading:
+                EmberLoadingBody()
+            case .failed(let message):
+                EmberErrorCard(
+                    title: "Couldn't reach your hosts",
+                    message: message,
+                    isRetrying: ext.isLoading,
+                    onSettings: openSettings,
+                    onRetry: { ext.refresh() }
+                )
+            default:
+                loaded
             }
-            if let error = ext.errorMessage {
-                errorBanner(error)
-            }
-            if ext.truncated {
-                warningBanner("Hit a host's result cap — counts may be capped.")
-            }
-            cards
-            Divider()
-            prList
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var header: some View {
-        HStack {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.body)
-                .foregroundStyle(.secondary)
-            Text("PRs").font(.headline)
-            Spacer()
-            Button {
-                openSettings()
-            } label: {
-                Image(systemName: "gear").foregroundStyle(.secondary)
+    /// Partial failures stay a banner: one dead host shouldn't hide the PRs the others returned.
+    private var loaded: some View {
+        VStack(spacing: 0) {
+            if let error = ext.errorMessage {
+                banner(error, symbol: "exclamationmark.triangle", color: Ember.accentDeep)
             }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
+            if ext.truncated {
+                banner("Hit a host's result cap, so counts may be capped.", symbol: "exclamationmark.circle", color: Ember.accent)
+            }
+            hero
+            scopeCards
+            paceTrack
+            listSection
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
     }
 
-    private func errorBanner(_ error: String) -> some View {
-        Label(error, systemImage: "exclamationmark.triangle")
-            .font(.caption2)
-            .foregroundStyle(.red)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    // MARK: - Hero
+
+    @ViewBuilder
+    private var hero: some View {
+        let merged = mergedCount
+        if let avg = periodAverage {
+            EmberHero(cost: avg) { heroCaption }
+        } else {
+            EmberHero(primary: "\(merged)", secondary: nil) { heroCaption }
+        }
     }
 
-    private func warningBanner(_ message: String) -> some View {
-        Label(message, systemImage: "exclamationmark.circle")
-            .font(.caption2)
-            .foregroundStyle(.orange)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private var heroCaption: some View {
+        Group {
+            if periodAverage != nil {
+                Text("per shipped PR \(periodLabel) · ")
+                    + Text("\(mergedCount)").bold().foregroundColor(Ember.text(0.9))
+                    + Text(" merged, ")
+                    + Text("\(openCount)").bold().foregroundColor(Ember.text(0.9))
+                    + Text(" open")
+            } else {
+                Text("merged \(periodLabel) · nothing to divide cost into yet")
+            }
+        }
     }
 
-    private var cards: some View {
+    // MARK: - Scope cards
+
+    /// Today/Week/Month tiles, replacing the old segmented pill (Turn 11) so the switcher itself
+    /// shows count + cost-per-PR instead of a bare label.
+    private var scopeCards: some View {
         HStack(spacing: 8) {
-            periodCard(.today, label: "Today", open: ext.todayOpenCount, merged: ext.todayMergedCount, avg: ext.avgCostPerPR)
-            periodCard(.week,  label: "Week",  open: ext.weekOpenCount,  merged: ext.weekMergedCount,  avg: ext.avgCostPerPRWeek)
-            periodCard(.month, label: "Month", open: ext.monthOpenCount, merged: ext.monthMergedCount, avg: ext.avgCostPerPRMonth)
+            scopeCard(label: "Today", period: .today, count: ext.todayMergedCount, costPerPR: ext.avgCostPerPR)
+            scopeCard(label: "Week", period: .week, count: ext.weekMergedCount, costPerPR: ext.avgCostPerPRWeek)
+            scopeCard(label: Formatters.monthLabel(Date()), period: .month, count: ext.monthMergedCount, costPerPR: ext.avgCostPerPRMonth)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
     }
 
-    private func periodCard(_ period: PRPeriod, label: String, open: Int, merged: Int, avg: Double?) -> some View {
-        StatCard(
+    private func scopeCard(label: String, period: PRPeriod, count: Int, costPerPR: Double?) -> some View {
+        EmberScopeCard(
             label: label,
-            value: "○\(open)  ⌥\(merged)",
-            subtitle: avg.map { "\(String(format: "$%.0f", $0)) / PR" } ?? "— / PR",
+            count: count,
+            costPerPR: costPerPR,
             isSelected: selectedPeriod == period,
-            onTap: { selectedPeriod = period }
+            onSelect: { withAnimation(EmberMotion.pill) { selectedPeriod = period } }
         )
     }
 
-    private var filteredPRs: [PullRequest] {
-        switch selectedPeriod {
-        case .today: return ext.todayPRs
-        case .week:  return ext.weekPRs
-        case .month: return ext.monthPRs
+    /// Repurposes the pace-bar pattern from the cost track: selected scope's merged count against
+    /// its own typical baseline, the same shape Usage's pace track uses for cost.
+    @ViewBuilder
+    private var paceTrack: some View {
+        let current = Double(mergedCount)
+        if let typical = typicalCount, typical > 0 {
+            let scale = max(current, typical) * 1.25
+            EmberTrack(
+                fill: scale > 0 ? current / scale : 0,
+                tick: scale > 0 ? typical / scale : nil,
+                leading: "\(periodLabel) \(mergedCount)",
+                trailing: "typical \(periodNoun) \(formatTypicalCount(typical))"
+            )
+            .padding(.top, 14)
+            .padding(.bottom, 16)
+        } else {
+            Spacer(minLength: 14)
         }
     }
 
-    private var emptyPeriodLabel: String {
-        switch selectedPeriod {
-        case .today: return "today"
-        case .week:  return "this week"
-        case .month: return "this month"
-        }
+    /// A day's run rate is often well under 1 PR — rounding that to "0" reads as "no baseline"
+    /// instead of "a small one", so keep a decimal below 1.
+    private func formatTypicalCount(_ value: Double) -> String {
+        value < 1 ? String(format: "%.1f", value) : "\(Int(value.rounded()))"
     }
 
+    // MARK: - List
+
+    private var listSection: some View {
+        VStack(spacing: 0) {
+            Text("Pull requests")
+                .font(.system(size: 10.5, weight: .bold))
+                .tracking(1.0)
+                .foregroundStyle(Ember.label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+
+            prList
+        }
+        .overlay(alignment: .top) { Rectangle().fill(Ember.hairline).frame(height: 1) }
+    }
+
+    /// Open and merged are shown as two labeled groups rather than one flat list — otherwise an
+    /// "0 merged today" card sitting right above a list of week-old open PRs reads as a
+    /// contradiction, even though open PRs are deliberately never scoped to the period.
     @ViewBuilder
     private var prList: some View {
-        let prs = filteredPRs
-        if prs.isEmpty {
+        let open = ext.openPRs.sorted { $0.effectiveDate > $1.effectiveDate }
+        let merged = ext.mergedPRs(for: selectedPeriod).sorted { $0.effectiveDate > $1.effectiveDate }
+        if open.isEmpty && merged.isEmpty {
             Text(emptyMessage)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 16)
-        } else {
-            let costNote = activeAvg.map { Formatters.cost($0) }
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.caption)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+        } else if open.count + merged.count > 4 {
             ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(prs.enumerated()), id: \.element.id) { idx, pr in
-                        PRRow(pr: pr, costNote: costNote)
-                        if idx < prs.count - 1 {
-                            Divider()
-                        }
-                    }
-                }
+                groupedRows(open: open, merged: merged)
             }
-            .frame(maxHeight: 180)
-            .padding(.vertical, 2)
+            // Tall enough to show a few rows past the fold, not just a sliver of one.
+            .frame(maxHeight: 240)
+            .padding(.bottom, 4)
+        } else {
+            groupedRows(open: open, merged: merged)
+                .padding(.bottom, 4)
         }
     }
 
-    private var activeAvg: Double? {
+    private func groupedRows(open: [PullRequest], merged: [PullRequest]) -> some View {
+        VStack(spacing: 0) {
+            if !open.isEmpty {
+                sectionLabel("Open")
+                rows(open)
+            }
+            if !merged.isEmpty {
+                sectionLabel("Merged \(periodLabel)")
+                rows(merged)
+            }
+        }
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9.5, weight: .semibold))
+            .tracking(0.6)
+            .foregroundStyle(Ember.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 3)
+    }
+
+    private func rows(_ prs: [PullRequest]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(prs.enumerated()), id: \.element.id) { idx, pr in
+                PRRow(pr: pr)
+                if idx < prs.count - 1 {
+                    Rectangle()
+                        .fill(Ember.fill(0.06))
+                        .frame(height: 1)
+                        .padding(.leading, 33)
+                }
+            }
+        }
+    }
+
+    private func banner(_ text: String, symbol: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+            Text(text).lineLimit(2)
+        }
+        .font(.system(size: 10.5))
+        .foregroundStyle(color)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+    }
+
+    // MARK: - Period
+
+    private var periodAverage: Double? {
         switch selectedPeriod {
         case .today: return ext.avgCostPerPR
         case .week:  return ext.avgCostPerPRWeek
@@ -324,17 +486,54 @@ struct PullRequestTabView: View {
         }
     }
 
-    private var emptyMessage: String {
-        if ext.lastRefresh == nil && ext.isLoading {
-            return "Loading…"
+    private var mergedCount: Int {
+        switch selectedPeriod {
+        case .today: return ext.todayMergedCount
+        case .week:  return ext.weekMergedCount
+        case .month: return ext.monthMergedCount
         }
-        return "No PRs \(emptyPeriodLabel)"
+    }
+
+    private var openCount: Int {
+        switch selectedPeriod {
+        case .today: return ext.todayOpenCount
+        case .week:  return ext.weekOpenCount
+        case .month: return ext.monthOpenCount
+        }
+    }
+
+    private var typicalCount: Double? {
+        switch selectedPeriod {
+        case .today: return ext.typicalDayMergedCount
+        case .week:  return ext.typicalWeekMergedCount
+        case .month: return ext.typicalMonthMergedCount
+        }
+    }
+
+    private var periodNoun: String {
+        switch selectedPeriod {
+        case .today: return "day"
+        case .week:  return "week"
+        case .month: return "month"
+        }
+    }
+
+    private var periodLabel: String {
+        switch selectedPeriod {
+        case .today: return "today"
+        case .week:  return "this week"
+        case .month: return "this month"
+        }
+    }
+
+    private var emptyMessage: String {
+        if ext.lastRefresh == nil && ext.isLoading { return "Loading…" }
+        return "No PRs \(periodLabel)"
     }
 }
 
 private struct PRRow: View {
     let pr: PullRequest
-    let costNote: String?
 
     var body: some View {
         Button {
@@ -342,111 +541,51 @@ private struct PRRow: View {
                 NSWorkspace.shared.open(url)
             }
         } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(pr.isMerged ? Color.purple : Color.green)
-                    .frame(width: 6, height: 6)
+            HStack(spacing: 10) {
+                dot
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title)
-                        .font(.caption)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Ember.primary)
                         .lineLimit(1)
-                    HStack(spacing: 6) {
-                        Text(pr.repository.nameWithOwner)
-                            .lineLimit(1)
-                        if let hostLabel = pr.hostLabel {
-                            Text("· \(hostLabel)")
-                                .lineLimit(1)
-                        }
-                        if let costNote {
-                            Text("· \(costNote)")
-                                .foregroundStyle(.quaternary)
-                        }
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    Text(subtitle)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Ember.label)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "arrow.up.right.square")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Ember.text(0.3))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
+            .emberHoverRow(cornerRadius: 0)
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
     }
-}
 
-private struct PullRequestSettingsView: View {
-    let ext: PullRequestExtension
-    @State private var input: String = ""
-    @State private var hostInput: String = ""
-    @State private var tokenInput: String = ""
-    @FocusState private var focused: Bool
-    @FocusState private var hostFocused: Bool
-
-    var body: some View {
-        VStack(spacing: 6) {
-            field(label: "Orgs") {
-                TextField("all", text: $input)
-                    .focused($focused)
-                    .onAppear { input = ext.owners.joined(separator: ", ") }
-                    .onSubmit(commitOwners)
-                    .onChange(of: focused) { _, isFocused in
-                        if !isFocused { commitOwners() }
-                    }
-            }
-            field(label: "Forgejo") {
-                TextField("git.example.com", text: $hostInput)
-                    .focused($hostFocused)
-                    .onAppear { hostInput = ext.forgejoHost }
-                    .onSubmit(commitHost)
-                    .onChange(of: hostFocused) { _, isFocused in
-                        if !isFocused { commitHost() }
-                    }
-            }
-            field(label: "Token") {
-                SecureField(ext.hasForgejoToken ? "stored" : "read:issue token", text: $tokenInput)
-                    .onSubmit(commitToken)
-            }
+    @ViewBuilder
+    private var dot: some View {
+        if pr.isMerged {
+            Circle().fill(Ember.accent).frame(width: 7, height: 7)
+        } else {
+            Circle()
+                .strokeBorder(Ember.accent.opacity(0.75), lineWidth: 1.5)
+                .frame(width: 7, height: 7)
         }
     }
 
-    private func field<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
-            Text(label).font(.caption)
-            Spacer()
-            content()
-                .textFieldStyle(.roundedBorder)
-                .font(.caption2)
-                .frame(width: 130)
+    private var subtitle: String {
+        var parts = [pr.repository.nameWithOwner]
+        if let host = pr.hostLabel { parts.append(host) }
+        if let merged = pr.mergedAt {
+            parts.append(Formatters.ago(merged))
+        } else {
+            parts.append("open \(Formatters.ago(pr.createdAt))")
         }
-    }
-
-    private func commitOwners() {
-        let parsed = input
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard parsed != ext.owners else { return }
-        ext.owners = parsed
-        ext.refresh()
-    }
-
-    private func commitHost() {
-        let trimmed = hostInput.trimmingCharacters(in: .whitespaces)
-        guard trimmed != ext.forgejoHost else { return }
-        ext.forgejoHost = trimmed
-        ext.refresh()
-    }
-
-    private func commitToken() {
-        guard !tokenInput.isEmpty else { return }
-        ext.setForgejoToken(tokenInput)
-        tokenInput = ""
-        ext.refresh()
+        return parts.joined(separator: " · ")
     }
 }

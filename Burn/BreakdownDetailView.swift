@@ -8,78 +8,73 @@ struct BreakdownDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-            panel
+            total
+            rows
         }
         .frame(maxWidth: .infinity)
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 9) {
             Button(action: onBack) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left")
-                        .font(.caption.weight(.semibold))
-                    Text("Back").font(.caption)
-                }
-                .foregroundStyle(.secondary)
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Ember.accent.opacity(0.9))
+                    .frame(width: 20, height: 20)
+                    .background(Ember.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 6))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.escape, modifiers: [])
             .pointingHandCursor()
 
-            Spacer()
             Text(data.title)
-                .font(.headline)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Ember.primary)
             Spacer()
-
-            Button(action: onSettings) {
-                Image(systemName: "gear")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .pointingHandCursor()
+            Text(data.subtitle)
+                .font(.system(size: 10.5))
+                .foregroundStyle(Ember.label)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 4)
     }
 
-    private var panel: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(data.title).font(.caption.bold())
-                    Text(data.subtitle).font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Text(Formatters.cost(data.totalCost))
-                    .font(.system(.body, design: .rounded).bold())
-            }
-            VStack(spacing: 4) {
-                row("Input",       tokens: data.inputTokens,      cost: data.inputCost)
-                row("Output",      tokens: data.outputTokens,     cost: data.outputCost)
-                row("Cache write", tokens: data.cacheWriteTokens, cost: data.cacheWriteCost)
-                row("Cache read",  tokens: data.cacheReadTokens,  cost: data.cacheReadCost)
-            }
+    private var total: some View {
+        EmberHero(cost: data.totalCost) {
+            Text("across input, output and cache")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
+        .padding(.bottom, 16)
     }
 
-    private func row(_ label: String, tokens: Int, cost: Double) -> some View {
-        HStack(spacing: 8) {
+    private var rows: some View {
+        EmberSection(title: "Where it went") {
+            VStack(spacing: 10) {
+                row("Input", tokens: data.inputTokens, cost: data.inputCost, emphasis: 1.0)
+                row("Output", tokens: data.outputTokens, cost: data.outputCost, emphasis: 0.75)
+                row("Cache write", tokens: data.cacheWriteTokens, cost: data.cacheWriteCost, emphasis: 0.5)
+                row("Cache read", tokens: data.cacheReadTokens, cost: data.cacheReadCost, emphasis: 0.35)
+            }
+        }
+    }
+
+    private func row(_ label: String, tokens: Int, cost: Double, emphasis: Double) -> some View {
+        HStack(spacing: 10) {
             Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 88, alignment: .leading)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Ember.primary)
+                .frame(width: 82, alignment: .leading)
             Text(Formatters.tokensCompact(tokens))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.caption)
+                .monospacedDigit()
                 .frame(maxWidth: .infinity, alignment: .trailing)
             Text(Formatters.cost(cost))
-                .font(.caption.monospacedDigit())
-                .frame(width: 64, alignment: .trailing)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(data.totalCost > 0 && cost / data.totalCost > 0.4 ? Ember.accent : Ember.primary)
+                .monospacedDigit()
+                .frame(width: 62, alignment: .trailing)
         }
     }
 }
