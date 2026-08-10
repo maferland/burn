@@ -28,6 +28,10 @@ protocol BurnExtension: AnyObject {
 
     /// False when there is nothing on this machine to report yet, which keeps the tab out of the way.
     var isConfigured: Bool { get }
+
+    /// Clears any in-popover browsing state (a day/week/month offset) back to "now". Called every
+    /// time the popover opens, so wandering off to a past day never sticks past that one look.
+    func resetBrowsing()
 }
 
 extension BurnExtension {
@@ -37,6 +41,7 @@ extension BurnExtension {
     var state: ExtensionState { .live }
     var settingsSubtitle: String? { nil }
     var isConfigured: Bool { true }
+    func resetBrowsing() {}
 }
 
 private struct OpenBurnSettingsKey: EnvironmentKey {

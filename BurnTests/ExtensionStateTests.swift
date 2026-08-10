@@ -102,4 +102,20 @@ final class ExtensionStateTests: XCTestCase {
         ext.lastRefresh = Date()
         XCTAssertEqual(ext.state, .live, "partial data downgrades the failure to a banner")
     }
+
+    /// Browsing to a past week must not stick past the popover closing and reopening.
+    func testResetBrowsingReturnsUsageToToday() {
+        let ext = makeUsage()
+        ext.period = .month
+        ext.weekOffset = -2
+        ext.monthOffset = -1
+        ext.selectedDayId = "2026-01-01"
+
+        ext.resetBrowsing()
+
+        XCTAssertEqual(ext.period, .day)
+        XCTAssertEqual(ext.weekOffset, 0)
+        XCTAssertEqual(ext.monthOffset, 0)
+        XCTAssertNil(ext.selectedDayId)
+    }
 }

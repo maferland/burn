@@ -106,6 +106,7 @@ struct MenuBarView: View {
         if let first = enabled.first {
             registry.activeTabId = first.id
         }
+        for ext in enabled { ext.resetBrowsing() }
         sessionID = UUID()
     }
 

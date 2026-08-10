@@ -167,4 +167,11 @@ final class UsageExtension: BurnExtension {
     func popoverTab() -> AnyView {
         AnyView(UsageDashboardView(ext: self, service: service, settings: settings))
     }
+
+    func resetBrowsing() {
+        period = Self.initialPeriod()
+        weekOffset = 0
+        monthOffset = 0
+        selectedDayId = Self.initialSelectedDay()
+    }
 }
