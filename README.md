@@ -34,7 +34,7 @@ make install
 
 ## Usage
 
-Run `Burn`. A flame icon appears in your menu bar with today's spend.
+Run `Burn`. Your menu bar shows today's spend as a dollar amount, plus one segment per enabled extension (e.g. `$12 · ⎇ 3`). The flame icon only shows before the first refresh completes.
 
 - **Click** — Popover with today's burn rate, pace against a typical day, and per-model breakdown
 - **Refresh** — Manual refresh button, or auto-refresh every 1–30 minutes
