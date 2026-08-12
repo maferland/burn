@@ -45,4 +45,4 @@ make release NEXT_VERSION=vX.Y.Z
 
 The Makefile wraps `package_app.sh` in `doppler run --`. Doppler holds `SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `NOTARIZE_PASSWORD` in the `macos / prd` config, which this directory is already scoped to (`doppler configure`). Without those, the release ships unsigned and macOS Sonoma silently deletes it on first launch from `/Applications/`. See `.claude/skills/release/SKILL.md` for the full checklist.
 
-Also bump `BurnVersion.current` in `Burn/BurnApp.swift` before tagging.
+`package_app.sh` writes `Info.plist`'s version from its `$VERSION` argument on every `make app`/`make release`, so there's nothing to bump by hand. The app reads its own version straight from the bundle (`Bundle.main.infoDictionary["CFBundleShortVersionString"]`) — if your local `Burn.app` still shows an old version after the fast binary-swap dev loop above, that bundle's `Info.plist` predates it; run `make app` to regenerate it.

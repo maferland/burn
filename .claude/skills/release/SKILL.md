@@ -37,11 +37,7 @@ If any of these are missing, the script falls back to an unsigned build, which m
    - Major (`v1.5.0` → `v2.0.0`): breaking changes
    - Ask user if ambiguous
 
-2. **Bump `BurnVersion.current`** in `Burn/BurnApp.swift` to the new version (without the `v` prefix).
-
-3. **Commit & push** — stage changes, commit, push to `origin main`.
-
-4. **Release** — run:
+2. **Release** — run:
    ```bash
    make release NEXT_VERSION=vX.Y.Z
    ```
@@ -50,7 +46,7 @@ If any of these are missing, the script falls back to an unsigned build, which m
    The app and the DMG are notarized separately, so expect two submissions and 2–4 minutes total.
    Watch for `status: Accepted` and `The staple and validate action worked!` after each.
 
-5. **Verify**:
+3. **Verify**:
    - `spctl --assess --type execute --verbose=4 /Applications/Burn.app` should print `accepted` and `source=Notarized Developer ID` after a fresh `brew reinstall --cask maferland/tap/burn`.
    - Confirm release URL and Homebrew tap updated.
 

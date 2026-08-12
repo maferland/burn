@@ -81,7 +81,7 @@ struct MenuBarView: View {
     }
 
     private var updatedLabel: String {
-        let raw = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? BurnVersion.current
+        let raw = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
         // The bundle string already carries a "v" in some builds; don't double it.
         let version = raw.hasPrefix("v") ? String(raw.dropFirst()) : raw
         let refreshed = service.usageData.lastRefreshDate
